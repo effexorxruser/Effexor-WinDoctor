@@ -13,7 +13,6 @@
     "operation_version",
     "target_id",
     "started_at",
-    "completed_at",
     "status",
     "exit_code",
     "changed_resources"
@@ -27,7 +26,10 @@
     "operation_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
     "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
     "started_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
-    "completed_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
     "status": {
       "type": "string",
       "enum": ["started", "succeeded", "failed", "cancelled", "timed_out"]
@@ -40,5 +42,60 @@
       "items": { "type": "string" }
     },
     "error": { "type": "string" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "started" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "completed_at": { "type": "null" },
+          "exit_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["succeeded", "failed", "cancelled", "timed_out"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["completed_at"],
+        "properties": {
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "succeeded" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "error": { "type": "string", "maxLength": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "enum": ["failed", "timed_out"] } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ]
 }

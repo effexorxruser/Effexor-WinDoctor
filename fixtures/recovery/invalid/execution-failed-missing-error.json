@@ -8,8 +8,8 @@
   "target_id": "target-disk-nvme0n1",
   "started_at": "2026-07-27T12:10:00Z",
   "completed_at": "2026-07-27T12:10:02Z",
-  "status": "succeeded",
-  "exit_code": 0,
-  "stdout_artifact": "artifact-111111111111111111111111",
-  "changed_resources": []
+  "status": "failed",
+  "exit_code": 1,
+  "changed_resources": [],
+  "error": ""
 }

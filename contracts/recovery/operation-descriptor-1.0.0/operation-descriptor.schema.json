@@ -60,5 +60,77 @@
     "requires_explicit_approval": { "type": "boolean" },
     "parameters_schema_ref": { "type": "string", "minLength": 1 },
     "result_schema_ref": { "type": "string", "minLength": 1 }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "read_only" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "mutation_class": { "const": "none" },
+          "requires_backup": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "risk_class": {
+            "enum": ["reversible", "controlled_mutation", "destructive", "irreversible"]
+          }
+        },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "mutation_class": {
+            "type": "string",
+            "enum": ["metadata", "config", "data", "firmware"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "risk_class": {
+            "enum": ["controlled_mutation", "destructive", "irreversible"]
+          }
+        },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "requires_explicit_approval": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "irreversible" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "rollback_quality": { "const": "unavailable" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "reversible" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "rollback_quality": {
+            "type": "string",
+            "enum": ["exact", "best_effort", "compensating"]
+          }
+        }
+      }
+    }
+  ]
 }

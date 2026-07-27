@@ -113,6 +113,44 @@ func (o OperationDescriptor) Validate() error {
 	if err := requireNonEmpty("result_schema_ref", o.ResultSchemaRef); err != nil {
 		return err
 	}
+	if err := o.validateSafetyInvariants(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o OperationDescriptor) validateSafetyInvariants() error {
+	switch o.RiskClass {
+	case RiskReadOnly:
+		if o.MutationClass != "none" {
+			return fmt.Errorf("read_only operations require mutation_class=none")
+		}
+		if o.RequiresBackup {
+			return fmt.Errorf("read_only operations require requires_backup=false")
+		}
+	default:
+		if o.MutationClass == "none" {
+			return fmt.Errorf("non-read_only operations require mutation_class != none")
+		}
+	}
+
+	switch o.RiskClass {
+	case RiskControlledMutation, RiskDestructive, RiskIrreversible:
+		if !o.RequiresExplicitApproval {
+			return fmt.Errorf("%s operations require requires_explicit_approval=true", o.RiskClass)
+		}
+	}
+
+	switch o.RiskClass {
+	case RiskIrreversible:
+		if o.RollbackQuality != RollbackUnavailable {
+			return fmt.Errorf("irreversible operations require rollback_quality=unavailable")
+		}
+	case RiskReversible:
+		if o.RollbackQuality == RollbackUnavailable {
+			return fmt.Errorf("reversible operations require rollback_quality != unavailable")
+		}
+	}
 	return nil
 }
 

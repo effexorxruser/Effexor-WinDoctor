@@ -1,0 +1,19 @@
+{
+  "schema_name": "operation-descriptor",
+  "schema_version": "1.0.0",
+  "operation_id": "boot.repair_bcd",
+  "version": "1.0.0",
+  "title": "Controlled BCD mutation",
+  "description": "Controlled mutation without approval flag.",
+  "module": "boot",
+  "risk_class": "controlled_mutation",
+  "mutation_class": "config",
+  "required_evidence": ["boot_store_locator"],
+  "required_capabilities": ["write_boot_store"],
+  "supported_runtimes": ["winpe"],
+  "requires_backup": true,
+  "rollback_quality": "best_effort",
+  "requires_explicit_approval": false,
+  "parameters_schema_ref": "operations/boot.repair_bcd.params-1.0.0",
+  "result_schema_ref": "operations/boot.repair_bcd.result-1.0.0"
+}

@@ -1,0 +1,31 @@
+{
+  "schema_name": "repair-plan",
+  "schema_version": "1.0.0",
+  "plan_id": "plan-dddddddddddddddddddddddd",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "finding_refs": ["finding-cccccccccccccccccccccccc"],
+  "steps": [
+    {
+      "step_id": "step-1",
+      "operation_id": "boot.inspect_bcd",
+      "operation_version": "1.0.0",
+      "target_id": "target-disk-nvme0n1",
+      "depends_on": [],
+      "approval_required": false,
+      "backup_required": false
+    },
+    {
+      "step_id": "step-2",
+      "operation_id": "boot.inspect_bcd",
+      "operation_version": "1.0.0",
+      "target_id": "target-disk-nvme0n1",
+      "depends_on": ["step-1"],
+      "approval_required": false,
+      "backup_required": false
+    }
+  ],
+  "risk_summary": "Ordered precede dependency is valid.",
+  "backup_requirements": [],
+  "approval_requirements": [],
+  "status": "ready"
+}

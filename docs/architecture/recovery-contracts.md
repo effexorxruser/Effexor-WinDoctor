@@ -43,10 +43,65 @@ Timestamps are RFC3339. SHA-256 values are exactly 64 hex characters.
 ## ID and reference rules
 
 IDs follow documented patterns (`case-…`, `target-…`, `evidence-…`, etc.).
-Cross-document references (finding → evidence/target, plan → finding/target)
-receive Go validation where JSON Schema alone cannot see other documents.
+
+Cross-document references are enforced in Go (`Validate*Refs`) because JSON
+Schema validates one document at a time:
+
+| Method | Checks |
+|--------|--------|
+| `Finding.ValidateFindingRefs` | `case_id`, each `evidence_ref`, each `affected_target_id` |
+| `RepairPlan.ValidatePlanRefs` | `case_id`, each `finding_ref`, each step `target_id` |
+| `EvidenceBundle.ValidateEvidenceRefs` | `case_id`, `target_id` |
+| `ExecutionEvent.ValidateExecutionRefs` | `case_id`, `target_id`, optional `stdout_artifact` / `stderr_artifact` |
+| `VerificationReport.ValidateVerificationRefs` | `case_id`, `execution_id`, each `evidence_ref` |
 
 Operation references always use `operation_id` + `version`.
+
+## RepairPlan dependency rules
+
+`steps` are ordered. Primary invariant: every `depends_on` entry must **precede**
+the current step in that array. Derived rules:
+
+- no duplicate IDs inside one step's `depends_on`
+- no self-dependency
+- no forward dependency
+- cycles are impossible under the precede rule (and rejected via forward edges)
+
+## OperationDescriptor safety invariants
+
+| Risk class | Required constraints |
+|------------|----------------------|
+| `read_only` | `mutation_class=none`, `requires_backup=false` |
+| non-`read_only` | `mutation_class != none` |
+| `controlled_mutation` / `destructive` / `irreversible` | `requires_explicit_approval=true` |
+| `irreversible` | `rollback_quality=unavailable` |
+| `reversible` | `rollback_quality != unavailable` |
+
+These rules are enforced in Go `Validate()` and mirrored as JSON Schema
+`if`/`then` constraints.
+
+## ExecutionEvent lifecycle
+
+| Status | `completed_at` | `exit_code` | `error` |
+|--------|----------------|-------------|--------|
+| `started` | absent or `null` | must be `null` | optional |
+| `succeeded` | required RFC3339 | optional integer/null | absent or empty |
+| `failed` / `timed_out` | required RFC3339 | optional integer/null | **required**, non-empty |
+| `cancelled` | required RFC3339 | optional integer/null | optional |
+
+## Finding evidence rule
+
+If `evidence_refs` is empty, `insufficient_evidence` must be `true`
+(Go + JSON Schema).
+
+## Schema / Go parity
+
+Single-document fixtures are validated by both JSON Schema and Go and must
+agree on accept/reject, except **documented Go-only cross-document / graph
+rules**:
+
+- repair-plan dependency graph (precede / self / forward / duplicate / unknown)
+- `Validate*Refs` existence checks across documents
 
 ## Schema versioning
 

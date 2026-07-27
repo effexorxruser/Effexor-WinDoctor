@@ -77,20 +77,34 @@ func (p RepairPlan) Validate() error {
 	if p.Steps == nil {
 		return fmt.Errorf("steps is required")
 	}
-	stepIDs := map[string]struct{}{}
+	stepIndex := map[string]int{}
 	for i, step := range p.Steps {
 		if err := step.Validate(); err != nil {
 			return fmt.Errorf("steps[%d]: %w", i, err)
 		}
-		if _, dup := stepIDs[step.StepID]; dup {
+		if _, dup := stepIndex[step.StepID]; dup {
 			return fmt.Errorf("duplicate step_id %q", step.StepID)
 		}
-		stepIDs[step.StepID] = struct{}{}
+		stepIndex[step.StepID] = i
 	}
 	for i, step := range p.Steps {
+		seenDeps := map[string]struct{}{}
 		for _, dep := range step.DependsOn {
-			if _, ok := stepIDs[dep]; !ok {
+			if dep == step.StepID {
+				return fmt.Errorf("steps[%d] depends_on must not reference itself", i)
+			}
+			if _, dup := seenDeps[dep]; dup {
+				return fmt.Errorf("steps[%d] depends_on contains duplicate %q", i, dep)
+			}
+			seenDeps[dep] = struct{}{}
+			depIdx, ok := stepIndex[dep]
+			if !ok {
 				return fmt.Errorf("steps[%d] depends_on unknown step_id %q", i, dep)
+			}
+			// Ordered-plan invariant: dependencies must precede the current step.
+			// This also forbids forward edges and cycles.
+			if depIdx >= i {
+				return fmt.Errorf("steps[%d] depends_on %q must precede the current step", i, dep)
 			}
 		}
 	}

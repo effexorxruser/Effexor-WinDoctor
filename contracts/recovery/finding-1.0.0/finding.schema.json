@@ -50,5 +50,21 @@
       "items": { "type": "string" }
     },
     "insufficient_evidence": { "type": "boolean" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_refs": { "type": "array", "maxItems": 0 }
+        },
+        "required": ["evidence_refs"]
+      },
+      "then": {
+        "required": ["insufficient_evidence"],
+        "properties": {
+          "insufficient_evidence": { "const": true }
+        }
+      }
+    }
+  ]
 }

@@ -1,0 +1,19 @@
+{
+  "schema_name": "operation-descriptor",
+  "schema_version": "1.0.0",
+  "operation_id": "firmware.flash",
+  "version": "1.0.0",
+  "title": "Flash firmware",
+  "description": "Irreversible flash with rollback claimed.",
+  "module": "firmware",
+  "risk_class": "irreversible",
+  "mutation_class": "firmware",
+  "required_evidence": ["device_identity"],
+  "required_capabilities": ["write_firmware"],
+  "supported_runtimes": ["winpe"],
+  "requires_backup": true,
+  "rollback_quality": "best_effort",
+  "requires_explicit_approval": true,
+  "parameters_schema_ref": "operations/firmware.flash.params-1.0.0",
+  "result_schema_ref": "operations/firmware.flash.result-1.0.0"
+}

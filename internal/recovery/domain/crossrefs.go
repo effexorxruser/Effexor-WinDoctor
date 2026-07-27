@@ -83,6 +83,49 @@ func (e EvidenceBundle) ValidateEvidenceRefs(refs CrossRefs) error {
 	return nil
 }
 
+// ValidateExecutionRefs checks execution case/target/artifact refs.
+func (e ExecutionEvent) ValidateExecutionRefs(refs CrossRefs) error {
+	if err := e.Validate(); err != nil {
+		return err
+	}
+	if err := requireRef("case_id", e.CaseID, refs.CaseIDs); err != nil {
+		return err
+	}
+	if err := requireRef("target_id", e.TargetID, refs.TargetIDs); err != nil {
+		return err
+	}
+	if e.StdoutArtifact != "" {
+		if err := requireRef("stdout_artifact", e.StdoutArtifact, refs.ArtifactIDs); err != nil {
+			return err
+		}
+	}
+	if e.StderrArtifact != "" {
+		if err := requireRef("stderr_artifact", e.StderrArtifact, refs.ArtifactIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateVerificationRefs checks verification case/execution/evidence refs.
+func (v VerificationReport) ValidateVerificationRefs(refs CrossRefs) error {
+	if err := v.Validate(); err != nil {
+		return err
+	}
+	if err := requireRef("case_id", v.CaseID, refs.CaseIDs); err != nil {
+		return err
+	}
+	if err := requireRef("execution_id", v.ExecutionID, refs.ExecutionIDs); err != nil {
+		return err
+	}
+	for _, id := range v.EvidenceRefs {
+		if err := requireRef("evidence_ref", id, refs.EvidenceIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // NewCrossRefs is a convenience constructor for tests and importers.
 func NewCrossRefs(caseIDs, targetIDs, evidenceIDs, findingIDs, executionIDs, artifactIDs []string) CrossRefs {
 	return CrossRefs{
