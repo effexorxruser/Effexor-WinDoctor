@@ -1,0 +1,19 @@
+{
+  "project": "PExplorer / WinXShell shellpart",
+  "revision": "5f8b886f326e706e6e4bba0e0b15da7da344857e",
+  "source_url": "https://github.com/slorelee/PExplorer/tree/WinXShell_shellpart",
+  "license": "LGPL-2.1",
+  "license_file": "third_party/winxshell/LICENSE.upstream-LGPL-2.1.txt",
+  "applied_patches": [],
+  "build_instructions": [
+    "Status: reproducible local build not completed in this repo workspace.",
+    "Preferred path: clone https://github.com/slorelee/PExplorer.git, checkout revision 5f8b886f326e706e6e4bba0e0b15da7da344857e on branch WinXShell_shellpart, and record any required vendor dependency restores/toolchain changes before producing WinXShell.exe.",
+    "Artifact-intake fallback: stage WinXShell.exe beside this manifest only after recording exact source revision, toolchain, local build notes, and SHA-256 in PROVENANCE.md and after copying LGPL text to LICENSE.LGPL-2.1.txt."
+  ],
+  "sha256": "TBD",
+  "redistribution_status": "hold",
+  "notes": [
+    "Do not vendor opaque WinXShell packs, Strelec builds, explorer.exe, or Windows system DLLs.",
+    "Desktop-shell ISO remains experimental until physical Ventoy smoke completes."
+  ]
+}

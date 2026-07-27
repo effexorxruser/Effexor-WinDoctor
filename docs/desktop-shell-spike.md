@@ -8,7 +8,7 @@ Research and build scaffolding for an optional WinPE desktop shell. This does
 | Profile | ISO name | Autostart | Third-party shell |
 |---------|----------|-----------|-------------------|
 | `minimal-shell` (default) | `EffexorWinPE-amd64.iso` | `effexorwinpe-shell.exe` then `cmd.exe` | none |
-| `desktop-shell` (experimental) | `EffexorWinPE-amd64-desktop-shell.iso` | optional desktop shell, then Effexor GUI, then `cmd.exe` | only if staged under `third_party/winxshell/` |
+| `desktop-shell` (experimental) | `EffexorWinPE-Desktop-Spike-amd64.iso` | WinXShell starts first, then Effexor Diagnostics in windowed mode, then `cmd.exe` fallback on exit | only if staged under `third_party/winxshell/` |
 
 Build:
 
@@ -20,6 +20,26 @@ Build:
 .\build\Build-WinPE.ps1 -UILanguage ru-RU -ShellProfile desktop-shell
 ```
 
+## Current spike architecture
+
+```mermaid
+flowchart TD
+    A[Ventoy boots ISO] --> B[startnet.cmd]
+    B --> C[wpeinit + InitializeNetwork]
+    C --> D{Shell profile}
+    D -->|minimal-shell| E[effexorwinpe-shell.exe]
+    D -->|desktop-shell| F[start WinXShell.exe -winpe]
+    F --> G[Launch-EffexorDiagnostics.cmd --wait]
+    G --> H[effexorwinpe-shell.exe --windowed]
+    E --> I[cmd.exe fallback]
+    H --> I
+```
+
+Desktop-shell intentionally keeps Effexor Diagnostics as the technician-facing
+app. The desktop shell is only a host surface that can provide wallpaper,
+taskbar, tray/clock, start menu, desktop icons, file manager, and power actions
+once a vetted WinXShell build is staged.
+
 ## License gate
 
 Before any experimental ISO is shared outside the lab:
@@ -30,6 +50,8 @@ Before any experimental ISO is shared outside the lab:
 3. Record source URL, commit/tag, build host, and SHA-256 in
    `third_party/winxshell/PROVENANCE.md`.
 4. Do **not** redistribute closed-source WinXShell UI component packs.
+5. Keep `third_party/winxshell/MANIFEST.json` aligned with the exact revision,
+   license file, and staged artifact hash.
 
 See [ADR 0002](decisions/0002-winpe-desktop-shell-spike.md).
 
@@ -37,13 +59,75 @@ See [ADR 0002](decisions/0002-winpe-desktop-shell-spike.md).
 
 ```
 third_party/winxshell/
+  MANIFEST.json          # tracked manifest required by AGENTS.md third-party rules
   PROVENANCE.md          # required, tracked
+  LICENSE.upstream-LGPL-2.1.txt
   LICENSE.LGPL-2.1.txt   # required when binary is staged
   WinXShell.exe          # gitignored; checksum-pinned in PROVENANCE.md
 ```
 
 `Build-WinPE.ps1 -ShellProfile desktop-shell` fails closed if the binary or
-provenance checksum is missing.
+provenance checksum is missing. It also requires the tracked manifest and
+license metadata before copying the third-party shell into the image.
+
+## What the spike implements now
+
+- Two build profiles: `minimal-shell` and `desktop-shell`
+- Separate experimental ISO name: `EffexorWinPE-Desktop-Spike-amd64.iso`
+- Third-party provenance gate for `WinXShell.exe`
+- Tracked third-party manifest and upstream LGPL notice
+- Desktop-shell startup path that:
+  - starts WinXShell first
+  - launches Effexor Diagnostics automatically
+  - runs Diagnostics with `--windowed` so it can remain visible in the taskbar
+  - drops to `cmd.exe` after Diagnostics exits
+- `Launch-EffexorDiagnostics.cmd` helper inside the image so Diagnostics can be
+  relaunched manually from the shell, file manager, or `cmd.exe`
+
+## Required but not yet validated here
+
+These capabilities are expected from the vetted PExplorer / WinXShell shellpart
+itself, but they are **not validated in this workspace** because no approved
+binary or reproducible local build is currently staged:
+
+- wallpaper
+- taskbar
+- tray / clock
+- start / application menu
+- desktop icons
+- file manager
+- reboot / shutdown integration
+
+`cmd.exe` fallback is implemented regardless of third-party shell validation.
+
+## Diagnostics behavior
+
+- `minimal-shell`: Diagnostics runs fullscreen/kiosk as today.
+- `desktop-shell`: Diagnostics launches automatically with `--windowed` so it
+  can be closed without killing the desktop shell and can remain visible in the
+  taskbar while the shell stays active.
+- Relaunch path: `X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd`
+
+No UI redesign is included in this spike.
+
+## Metrics
+
+See [desktop-shell-metrics.md](desktop-shell-metrics.md) for the required table,
+physical measurement steps, and merge gate placeholders.
+
+## License review
+
+- Candidate source line: `slorelee/PExplorer` branch `WinXShell_shellpart`
+- Exact researched revision:
+  `5f8b886f326e706e6e4bba0e0b15da7da344857e`
+- Declared license: LGPL-2.1
+- Local notice tracked at:
+  `third_party/winxshell/LICENSE.upstream-LGPL-2.1.txt`
+- Redistribution status: **Hold** until:
+  - reproducible build notes or strict artifact intake are completed
+  - `LICENSE.LGPL-2.1.txt` is staged beside the actual binary
+  - SHA-256 is recorded in both manifest/provenance
+  - physical Ventoy smoke passes
 
 ## Rollback
 
@@ -57,12 +141,15 @@ Emergency console: `cmd.exe` still starts after the GUI exits on both profiles.
 - [ ] `minimal-shell` ISO still boots; Effexor GUI + Esc + cmd fallback work.
 - [ ] `desktop-shell` ISO boots only with pinned binary present.
 - [ ] Desktop shell starts under WinPE (`-winpe` or documented flag).
+- [ ] Desktop shell keeps taskbar/tray/clock visible after Diagnostics auto-launch.
+- [ ] `Launch-EffexorDiagnostics.cmd` relaunches Diagnostics after the first close.
 - [ ] Effexor GUI still launches and remains usable (mouse + keyboard).
 - [ ] Record peak working-set / free RAM vs `minimal-shell` on the same VM.
 - [ ] Screenshot set under `out/local-validation/desktop-shell-spike/` (not committed).
 - [ ] Confirm no secrets or non-LGPL blobs entered the image.
+- [ ] Do not merge until physical Ventoy smoke of `EffexorWinPE-Desktop-Spike-amd64.iso`.
 
-## Memory / risk notes
+## Known limitations
 
 - Desktop shells typically cost more RAM than kiosk Win32 UI alone; measure on a
   2–4 GB WinPE VM before recommending physical use.
@@ -70,3 +157,8 @@ Emergency console: `cmd.exe` still starts after the GUI exits on both profiles.
   issues; treat coexistence as part of the spike, not an assumed success.
 - Opaque community binaries are rejected until provenance matches AGENTS.md
   third-party rules.
+- `WinXShell.exe` is not staged in this repo, so the experimental ISO cannot be
+  produced yet from this checkout.
+- Reproducible local build instructions for the shellpart are still incomplete;
+  artifact intake remains the current documented fallback.
+- Screenshots in this doc remain placeholders until physical or VM validation is run.

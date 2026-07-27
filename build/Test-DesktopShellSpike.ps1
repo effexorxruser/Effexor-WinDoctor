@@ -6,10 +6,13 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $BuildWinPE = Join-Path $PSScriptRoot "Build-WinPE.ps1"
 $Provenance = Join-Path $RepoRoot "third_party/winxshell/PROVENANCE.md"
+$Manifest = Join-Path $RepoRoot "third_party/winxshell/MANIFEST.json"
 $Docs = @(
     (Join-Path $RepoRoot "docs/desktop-shell-spike.md"),
     (Join-Path $RepoRoot "docs/decisions/0002-winpe-desktop-shell-spike.md"),
-    $Provenance
+    (Join-Path $RepoRoot "docs/desktop-shell-metrics.md"),
+    $Provenance,
+    $Manifest
 )
 
 foreach ($Path in $Docs) {
@@ -21,11 +24,30 @@ foreach ($Path in $Docs) {
 $BuildText = Get-Content -LiteralPath $BuildWinPE -Raw
 foreach ($Needle in @(
         'ValidateSet("minimal-shell", "desktop-shell")',
-        'EffexorWinPE-$Architecture-desktop-shell.iso',
-        'ShellProfile desktop-shell requires'
+        'EffexorWinPE-Desktop-Spike-$Architecture.iso',
+        'ShellProfile desktop-shell requires',
+        'Launch-EffexorDiagnostics.cmd',
+        'start "Effexor Desktop" /min'
     )) {
     if ($BuildText -notlike "*$Needle*") {
         throw "Build-WinPE.ps1 is missing expected desktop-shell spike content: $Needle"
+    }
+}
+
+$ManifestData = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
+foreach ($Field in @(
+        "project",
+        "revision",
+        "source_url",
+        "license",
+        "license_file",
+        "applied_patches",
+        "build_instructions",
+        "sha256",
+        "redistribution_status"
+    )) {
+    if (-not ($ManifestData.PSObject.Properties.Name -contains $Field)) {
+        throw "Desktop-shell manifest is missing field: $Field"
     }
 }
 

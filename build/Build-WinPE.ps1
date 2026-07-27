@@ -21,7 +21,7 @@ $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $WorkingDirectory = Join-Path $OutputDirectory "winpe-$Architecture"
 $MountDirectory = Join-Path $WorkingDirectory "mount"
 $IsoName = if ($ShellProfile -eq "desktop-shell") {
-    "EffexorWinPE-$Architecture-desktop-shell.iso"
+    "EffexorWinPE-Desktop-Spike-$Architecture.iso"
 } else {
     "EffexorWinPE-$Architecture.iso"
 }
@@ -29,6 +29,7 @@ $IsoPath = Join-Path $OutputDirectory $IsoName
 $DesktopShellVendorDir = Join-Path $RepoRoot "third_party/winxshell"
 $DesktopShellBinary = Join-Path $DesktopShellVendorDir "WinXShell.exe"
 $DesktopShellProvenance = Join-Path $DesktopShellVendorDir "PROVENANCE.md"
+$DesktopShellManifest = Join-Path $DesktopShellVendorDir "MANIFEST.json"
 $DesktopShellLicense = Join-Path $DesktopShellVendorDir "LICENSE.LGPL-2.1.txt"
 
 $AdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits/10/Assessment and Deployment Kit"
@@ -106,6 +107,20 @@ try {
         -DestinationRoot $PayloadTarget `
         -ManifestPath (Join-Path $RepoRoot "manifests/image-payload.json")
 
+    $DiagnosticsLauncher = Join-Path $PayloadTarget "Launch-EffexorDiagnostics.cmd"
+    $DiagnosticsLauncherBody = @"
+@echo off
+setlocal
+set "EFFEXOR_DIAGNOSTICS=X:\EffexorWinPE\bin\effexorwinpe-shell.exe"
+if /I "%~1"=="--wait" (
+  "%EFFEXOR_DIAGNOSTICS%" --windowed
+  exit /b %ERRORLEVEL%
+)
+start "Effexor Diagnostics" "%EFFEXOR_DIAGNOSTICS%" --windowed
+exit /b 0
+"@
+    Set-Content -LiteralPath $DiagnosticsLauncher -Value $DiagnosticsLauncherBody -Encoding ASCII
+
     $StartnetShellLines = @(
         "X:\EffexorWinPE\bin\effexorwinpe-shell.exe"
     )
@@ -115,6 +130,9 @@ try {
         }
         if (-not (Test-Path $DesktopShellProvenance)) {
             throw "ShellProfile desktop-shell requires provenance at $DesktopShellProvenance."
+        }
+        if (-not (Test-Path $DesktopShellManifest)) {
+            throw "ShellProfile desktop-shell requires third-party manifest at $DesktopShellManifest."
         }
         if (-not (Test-Path $DesktopShellLicense)) {
             throw "ShellProfile desktop-shell requires $DesktopShellLicense before redistribution."
@@ -142,10 +160,12 @@ try {
         Copy-Item -LiteralPath $DesktopShellBinary -Destination (Join-Path $VendorTarget "WinXShell.exe") -Force
         Copy-Item -LiteralPath $DesktopShellLicense -Destination (Join-Path $VendorTarget "LICENSE.LGPL-2.1.txt") -Force
         Copy-Item -LiteralPath $DesktopShellProvenance -Destination (Join-Path $VendorTarget "PROVENANCE.md") -Force
-        # Launch desktop shell first; Effexor GUI remains the technician app.
+        Copy-Item -LiteralPath $DesktopShellManifest -Destination (Join-Path $VendorTarget "MANIFEST.json") -Force
+        # Launch desktop shell first, then start Diagnostics windowed so it stays
+        # visible in the taskbar. If Diagnostics exits, cmd.exe remains available.
         $StartnetShellLines = @(
-            "X:\EffexorWinPE\third_party\winxshell\WinXShell.exe -winpe",
-            "X:\EffexorWinPE\bin\effexorwinpe-shell.exe"
+            'start "Effexor Desktop" /min "X:\EffexorWinPE\third_party\winxshell\WinXShell.exe" -winpe',
+            'call X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd --wait'
         )
     }
 

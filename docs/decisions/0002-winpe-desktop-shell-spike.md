@@ -22,9 +22,11 @@ the default `minimal-shell` release path:
 1. Default profile remains `minimal-shell` (current `startnet.cmd` + Effexor GUI).
 2. `desktop-shell` may stage a **checksum-pinned, LGPL-2.1-compatible** shell
    binary only after provenance is recorded under `third_party/`.
-3. Experimental ISO output uses a distinct filename so it cannot overwrite the
-   release ISO.
-4. Rollback is switching the profile back to `minimal-shell` (or rebuilding the
+3. Experimental ISO output uses the distinct filename
+   `EffexorWinPE-Desktop-Spike-amd64.iso` so it cannot overwrite the release ISO.
+4. Desktop-shell startup keeps Effexor Diagnostics as the technician app by
+   auto-launching it in windowed mode after WinXShell starts.
+5. Rollback is switching the profile back to `minimal-shell` (or rebuilding the
    release ISO). No runtime dual-shell switch is required for the spike.
 
 ### Candidate source (research)

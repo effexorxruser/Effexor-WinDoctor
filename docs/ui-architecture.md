@@ -32,13 +32,17 @@ triage logic remain in `effexorwinpe-collector` and `effexorwinpe-agent`.
 
 ## Runtime flow
 
-1. WinPE `startnet.cmd` initializes networking and starts `effexorwinpe-shell.exe`.
-2. After the shell exits, `cmd.exe` starts so emergency console access remains.
-3. From the GUI, the technician starts diagnostics.
-4. Shell runs `effexorwinpe-collector.exe` then `effexorwinpe-agent.exe`.
-5. Shell decodes JSON through `diagnostics.DecodeReportJSON` (supports 1.3.0 and legacy 1.2.0 migration on the base branch).
-6. Adapter builds view-models; Win32 UI renders localized screens.
-7. Export copies artifacts to a chosen folder (USB or other writable media).
+1. WinPE `startnet.cmd` initializes networking and starts either the default
+   `minimal-shell` flow or the experimental `desktop-shell` flow.
+2. `minimal-shell` launches `effexorwinpe-shell.exe` directly.
+3. `desktop-shell` starts WinXShell first, then launches
+   `effexorwinpe-shell.exe --windowed` via `Launch-EffexorDiagnostics.cmd`.
+4. After Diagnostics exits, `cmd.exe` starts so emergency console access remains.
+5. From the GUI, the technician starts diagnostics.
+6. Shell runs `effexorwinpe-collector.exe` then `effexorwinpe-agent.exe`.
+7. Shell decodes JSON through `diagnostics.DecodeReportJSON` (supports 1.3.0 and legacy 1.2.0 migration on the base branch).
+8. Adapter builds view-models; Win32 UI renders localized screens.
+9. Export copies artifacts to a chosen folder (USB or other writable media).
 
 Default artifact paths (WinPE):
 
