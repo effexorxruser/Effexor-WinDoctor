@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json",
+  "title": "Effexor Recovery common definitions 1.0.0",
+  "$defs": {
+    "schemaVersion": { "const": "1.0.0" },
+    "rfc3339": { "type": "string", "format": "date-time" },
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "semver": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "caseId": { "type": "string", "pattern": "^case-[a-f0-9]{24}$" },
+    "targetId": { "type": "string", "pattern": "^target-[a-z0-9-]{8,64}$" },
+    "evidenceId": { "type": "string", "pattern": "^evidence-[a-f0-9]{24}$" },
+    "findingId": { "type": "string", "pattern": "^finding-[a-f0-9]{24}$" },
+    "planId": { "type": "string", "pattern": "^plan-[a-f0-9]{24}$" },
+    "operationId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,63}$" },
+    "executionId": { "type": "string", "pattern": "^exec-[a-f0-9]{24}$" },
+    "verificationId": { "type": "string", "pattern": "^verify-[a-f0-9]{24}$" },
+    "artifactId": { "type": "string", "pattern": "^artifact-[a-f0-9]{24}$" },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+([/\\\\][A-Za-z0-9._-]+)*$"
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["winpe", "windows", "lab_host", "unknown"]
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "kind",
+        "relative_path",
+        "sha256",
+        "size_bytes",
+        "created_at",
+        "media_classification"
+      ],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/artifactId" },
+        "kind": {
+          "type": "string",
+          "enum": ["log", "json", "binary", "screenshot", "report", "stdout", "stderr", "other"]
+        },
+        "relative_path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "created_at": { "$ref": "#/$defs/rfc3339" },
+        "media_classification": {
+          "type": "string",
+          "enum": ["case_local", "technician", "ephemeral", "export"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_name": "evidence-bundle",
+  "schema_version": "1.0.0",
+  "evidence_id": "evidence-bbbbbbbbbbbbbbbbbbbbbbbb",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "target_id": "target-disk-nvme0n1",
+  "collector": "effexor-recovery-probe",
+  "collector_version": "0.1.0",
+  "captured_at": "2026-07-27T12:01:00Z",
+  "source_status": "ok",
+  "facts": { "ok": true },
+  "artifacts": [
+    {
+      "artifact_id": "artifact-111111111111111111111111",
+      "kind": "json",
+      "relative_path": "evidence/disk-inventory.json",
+      "sha256": "deadbeef",
+      "size_bytes": 128,
+      "created_at": "2026-07-27T12:01:00Z",
+      "media_classification": "case_local"
+    }
+  ],
+  "limitations": []
+}

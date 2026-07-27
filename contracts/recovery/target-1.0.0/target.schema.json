@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/target-1.0.0/target.schema.json",
+  "title": "Effexor Recovery target 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "target_id",
+    "target_type",
+    "discovered_at",
+    "display_name",
+    "stable_identity",
+    "runtime_locators",
+    "capabilities",
+    "limitations"
+  ],
+  "properties": {
+    "schema_name": { "const": "target" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+    "target_type": {
+      "type": "string",
+      "enum": ["disk", "partition", "volume", "windows_installation", "firmware", "boot_store"]
+    },
+    "discovered_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "stable_identity": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "runtime_locators": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

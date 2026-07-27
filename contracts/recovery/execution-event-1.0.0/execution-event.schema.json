@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/execution-event-1.0.0/execution-event.schema.json",
+  "title": "Effexor Recovery execution event 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "execution_id",
+    "case_id",
+    "operation_id",
+    "operation_version",
+    "target_id",
+    "started_at",
+    "completed_at",
+    "status",
+    "exit_code",
+    "changed_resources"
+  ],
+  "properties": {
+    "schema_name": { "const": "execution-event" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "execution_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/executionId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "operation_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/operationId" },
+    "operation_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+    "started_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "completed_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "status": {
+      "type": "string",
+      "enum": ["started", "succeeded", "failed", "cancelled", "timed_out"]
+    },
+    "exit_code": { "type": ["integer", "null"] },
+    "stdout_artifact": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/artifactId" },
+    "stderr_artifact": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/artifactId" },
+    "changed_resources": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "error": { "type": "string" }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_name": "finding",
+  "schema_version": "1.0.0",
+  "finding_id": "finding-cccccccccccccccccccccccc",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "severity": "high",
+  "confidence": "medium",
+  "title": "ESP present but boot entry missing",
+  "rationale": "Disk inventory shows an EFI system partition while BCD enumeration found no matching Windows boot entry.",
+  "evidence_refs": ["evidence-bbbbbbbbbbbbbbbbbbbbbbbb"],
+  "affected_target_ids": ["target-disk-nvme0n1"],
+  "recommended_workflows": ["boot-doctor"],
+  "limitations": ["BCD store may be on another disk"]
+}

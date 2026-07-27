@@ -1,0 +1,14 @@
+{
+  "schema_name": "finding",
+  "schema_version": "1.0.0",
+  "finding_id": "finding-cccccccccccccccccccccccc",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "severity": "high",
+  "confidence": "medium",
+  "title": "t",
+  "rationale": "r",
+  "evidence_refs": [],
+  "affected_target_ids": ["target-disk-nvme0n1"],
+  "recommended_workflows": ["boot-doctor"],
+  "limitations": []
+}

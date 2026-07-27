@@ -60,6 +60,7 @@ See:
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)
 - [`docs/architecture/overview-v2.md`](docs/architecture/overview-v2.md)
+- [`docs/architecture/recovery-contracts.md`](docs/architecture/recovery-contracts.md)
 - [`docs/roadmap-v2.md`](docs/roadmap-v2.md)
 - ADRs under [`docs/adr/`](docs/adr/)
 
