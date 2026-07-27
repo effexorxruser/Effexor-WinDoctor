@@ -26,7 +26,7 @@ flowchart TD
     D -->|minimal-shell| E[effexorwinpe-shell.exe]
     D -->|desktop-shell| F[Start-DesktopShell.cmd]
     F --> G[start WinXShell.exe -winpe]
-    G --> H[wait up to 20 seconds + write startup log]
+    G --> H[ping settle delay + write startup log]
     H --> I[Launch-EffexorDiagnostics.cmd --wait]
     I --> J[effexorwinpe-shell.exe --windowed]
     E --> K[cmd.exe fallback]
@@ -94,8 +94,10 @@ Current status:
 - [x] confirmed spike branch is already based on `origin/main`
 - [x] run `build/Test-DesktopShellSpike.ps1` (`PASS`)
 - [x] run `build/Test-Repository.ps1` (`PASS`)
+- [x] upstream feasibility audit (`out/local-validation/winxshell-build-audit/REPORT.md`) → **GO**
+- [x] reproducible local x64 build of open shellpart + `notifyhook.dll` (`local_test_only`)
 - [ ] run `build/Build-WinPE.ps1 -ShellProfile minimal-shell`
-- [ ] run `build/Build-WinPE.ps1 -ShellProfile desktop-shell`
+- [ ] run `build/Build-WinPE.ps1 -ShellProfile desktop-shell` (needs elevated PowerShell / ADK)
 - [ ] ADK desktop build
 - [ ] screenshots
 - [ ] metrics

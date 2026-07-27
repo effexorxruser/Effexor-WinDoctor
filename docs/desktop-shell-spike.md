@@ -30,7 +30,7 @@ flowchart TD
     D -->|minimal-shell| E[effexorwinpe-shell.exe]
     D -->|desktop-shell| F[Start-DesktopShell.cmd]
     F --> G[start WinXShell.exe -winpe]
-    G --> H[wait up to 20 seconds + write startup log]
+    G --> H[ping settle delay + write startup log]
     H --> I[Launch-EffexorDiagnostics.cmd --wait]
     I --> J[effexorwinpe-shell.exe --windowed]
     E --> K[cmd.exe fallback]
@@ -40,7 +40,10 @@ flowchart TD
 Desktop-shell intentionally keeps Effexor Diagnostics as the technician-facing
 app. The desktop shell is only a host surface that can provide wallpaper,
 taskbar, tray/clock, start menu, desktop icons, file manager, and power actions
-once a vetted WinXShell build is staged.
+once a vetted WinXShell build is staged. Open shellpart sources load desktop and
+Start Menu entries through CSIDL folders (with `-winpe` remapping
+`USERPROFILE` to `X:\Users\Default`), and require native `WinXShell.jcfg` plus
+`notifyhook.dll` beside the EXE.
 
 ## License gate
 
@@ -89,11 +92,12 @@ under the stable name `LICENSE.LGPL-2.1.txt`.
 - Tracked third-party manifest and upstream LGPL notice
 - Desktop-shell startup path that:
   - starts WinXShell first
-  - waits for the process to appear with a bounded timeout
+  - waits with a bounded `ping`-based settle delay (base WinPE lacks `tasklist`/`timeout`)
   - records desktop startup events to `X:\EffexorWinPE\reports\desktop-shell-startup.log`
   - launches Effexor Diagnostics automatically
   - runs Diagnostics with `--windowed` so it can remain visible in the taskbar
   - drops to `cmd.exe` after Diagnostics exits
+- Stages `notifyhook.dll` and native `WinXShell.jcfg` beside `WinXShell.exe`
 - `Launch-EffexorDiagnostics.cmd` helper inside the image so Diagnostics can be
   relaunched manually from the shell, file manager, or `cmd.exe`
 - Desktop and Start Menu launcher entries for `X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd`

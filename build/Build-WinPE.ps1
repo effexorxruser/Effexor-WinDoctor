@@ -30,6 +30,8 @@ $DesktopShellVendorDir = Join-Path $RepoRoot "third_party/winxshell"
 $DesktopShellBinary = Join-Path $DesktopShellVendorDir "WinXShell.exe"
 $DesktopShellProvenance = Join-Path $DesktopShellVendorDir "PROVENANCE.md"
 $DesktopShellManifest = Join-Path $DesktopShellVendorDir "MANIFEST.json"
+$DesktopShellNotifyHook = Join-Path $DesktopShellVendorDir "notifyhook.dll"
+$DesktopShellJcfg = Join-Path $DesktopShellVendorDir "WinXShell.jcfg"
 
 function Resolve-RepoPath {
     param(
@@ -211,6 +213,12 @@ exit /b 0
         if (-not (Test-Path $DesktopShellBinary)) {
             throw "ShellProfile desktop-shell requires $DesktopShellBinary (see docs/desktop-shell-spike.md)."
         }
+        if (-not (Test-Path -LiteralPath $DesktopShellNotifyHook)) {
+            throw "ShellProfile desktop-shell requires $DesktopShellNotifyHook beside WinXShell.exe."
+        }
+        if (-not (Test-Path -LiteralPath $DesktopShellJcfg)) {
+            throw "ShellProfile desktop-shell requires native config $DesktopShellJcfg."
+        }
         Assert-DesktopShellProvenanceAligned -ManifestData $DesktopShellMetadata -ProvenancePath $DesktopShellProvenance
         if ($DesktopShellMetadata.sha256 -eq "TBD") {
             throw "ShellProfile desktop-shell requires a real sha256 in $DesktopShellManifest before desktop-shell builds."
@@ -234,30 +242,21 @@ setlocal EnableExtensions
 set "SHELL_EXE=X:\EffexorWinPE\third_party\winxshell\WinXShell.exe"
 set "DIAGNOSTICS_LAUNCHER=X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd"
 set "STARTUP_LOG=X:\EffexorWinPE\reports\desktop-shell-startup.log"
-set "READY_TIMEOUT_SECONDS=20"
+set "READY_SETTLE_SECONDS=5"
 >>"%STARTUP_LOG%" echo [%date% %time%] Desktop bootstrap started.
 if not exist "%SHELL_EXE%" (
   >>"%STARTUP_LOG%" echo [%date% %time%] ERROR missing WinXShell binary.
   exit /b 1
 )
 start "Effexor Desktop" "%SHELL_EXE%" -winpe
-set /a remaining=%READY_TIMEOUT_SECONDS%
-:wait_for_shell
-tasklist /FI "IMAGENAME eq WinXShell.exe" | find /I "WinXShell.exe" >nul
-if not errorlevel 1 goto shell_ready
-if %remaining% LEQ 0 goto shell_timeout
-timeout /t 1 /nobreak >nul
-set /a remaining-=1
-goto wait_for_shell
-:shell_ready
->>"%STARTUP_LOG%" echo [%date% %time%] WinXShell detected; launching Diagnostics.
+REM Base WinPE lacks process-list and delay utilities. Use ping settle delay instead.
+>>"%STARTUP_LOG%" echo [%date% %time%] Waiting %READY_SETTLE_SECONDS%s for WinXShell settle (ping-based).
+ping -n %READY_SETTLE_SECONDS% 127.0.0.1 >nul
+>>"%STARTUP_LOG%" echo [%date% %time%] Launching Diagnostics after settle delay.
 call "%DIAGNOSTICS_LAUNCHER%" --wait
 set "DIAGNOSTICS_EXIT=%ERRORLEVEL%"
 >>"%STARTUP_LOG%" echo [%date% %time%] Diagnostics exited with code %DIAGNOSTICS_EXIT%.
 exit /b %DIAGNOSTICS_EXIT%
-:shell_timeout
->>"%STARTUP_LOG%" echo [%date% %time%] ERROR WinXShell did not appear within timeout.
-exit /b 1
 "@
         $DiagnosticsDesktopEntryBody = @"
 @echo off
@@ -273,6 +272,8 @@ call X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd
         New-Item -ItemType Directory -Force -Path $VendorTarget | Out-Null
         Set-Content -LiteralPath $DesktopBootstrap -Value $DesktopBootstrapBody -Encoding ASCII
         Copy-Item -LiteralPath $DesktopShellBinary -Destination (Join-Path $VendorTarget "WinXShell.exe") -Force
+        Copy-Item -LiteralPath $DesktopShellNotifyHook -Destination (Join-Path $VendorTarget "notifyhook.dll") -Force
+        Copy-Item -LiteralPath $DesktopShellJcfg -Destination (Join-Path $VendorTarget "WinXShell.jcfg") -Force
         Copy-Item -LiteralPath $DesktopShellMetadata.ResolvedLicensePath -Destination (Join-Path $VendorTarget "LICENSE.LGPL-2.1.txt") -Force
         Copy-Item -LiteralPath $DesktopShellProvenance -Destination (Join-Path $VendorTarget "PROVENANCE.md") -Force
         Copy-Item -LiteralPath $DesktopShellManifest -Destination (Join-Path $VendorTarget "MANIFEST.json") -Force

@@ -150,7 +150,10 @@ foreach ($Needle in @(
         'LICENSE.LGPL-2.1.txt',
         'Start-DesktopShell.cmd',
         'desktop-shell-startup.log',
-        'Launch-EffexorDiagnostics.cmd'
+        'Launch-EffexorDiagnostics.cmd',
+        'notifyhook.dll',
+        'WinXShell.jcfg',
+        'ping -n %READY_SETTLE_SECONDS% 127.0.0.1 >nul'
     )) {
     if ($BuildText -notlike "*$Needle*") {
         throw "Build-WinPE.ps1 is missing expected desktop-shell spike content: $Needle"
@@ -159,8 +162,22 @@ foreach ($Needle in @(
 if ($BuildText -like '*/min*') {
     throw "Build-WinPE.ps1 must not launch WinXShell with /min."
 }
+if ($BuildText -match '(?i)\btasklist(\.exe)?(\s|/)' -or $BuildText -match '(?i)\btimeout(\.exe)?\s+/t\b') {
+    throw "Build-WinPE.ps1 must not depend on tasklist.exe or timeout.exe in WinPE bootstrap."
+}
 if ($BuildText -notlike '*if ($ShellProfile -eq "desktop-shell")*') {
     throw "Build-WinPE.ps1 must keep desktop-shell gating separate from minimal-shell startup."
+}
+
+$JcfgPath = Join-Path $RepoRoot "third_party/winxshell/WinXShell.jcfg"
+if (-not (Test-Path -LiteralPath $JcfgPath)) {
+    throw "Missing native WinXShell config: $JcfgPath"
+}
+$JcfgText = Get-Content -LiteralPath $JcfgPath -Raw
+foreach ($Needle in @('JS_STARTMENU', 'Wpeutil.exe', 'Reboot', 'Shutdown')) {
+    if ($JcfgText -notlike "*$Needle*") {
+        throw "WinXShell.jcfg is missing expected content: $Needle"
+    }
 }
 
 $ManifestData = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
