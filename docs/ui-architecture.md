@@ -35,9 +35,12 @@ triage logic remain in `effexorwinpe-collector` and `effexorwinpe-agent`.
 1. WinPE `startnet.cmd` initializes networking and starts either the default
    `minimal-shell` flow or the experimental `desktop-shell` flow.
 2. `minimal-shell` launches `effexorwinpe-shell.exe` directly.
-3. `desktop-shell` starts WinXShell first, then launches
-   `effexorwinpe-shell.exe --windowed` via `Launch-EffexorDiagnostics.cmd`.
-4. After Diagnostics exits, `cmd.exe` starts so emergency console access remains.
+3. `desktop-shell` calls `Start-DesktopShell.cmd`, which starts WinXShell,
+   waits for the shell process with a bounded timeout, writes a startup log,
+   then launches `effexorwinpe-shell.exe --windowed` via
+   `Launch-EffexorDiagnostics.cmd`.
+4. After Diagnostics exits, or if desktop bootstrap fails, `cmd.exe` starts so
+   emergency console access remains.
 5. From the GUI, the technician starts diagnostics.
 6. Shell runs `effexorwinpe-collector.exe` then `effexorwinpe-agent.exe`.
 7. Shell decodes JSON through `diagnostics.DecodeReportJSON` (supports 1.3.0 and legacy 1.2.0 migration on the base branch).

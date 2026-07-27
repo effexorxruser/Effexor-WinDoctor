@@ -8,7 +8,7 @@ Research and build scaffolding for an optional WinPE desktop shell. This does
 | Profile | ISO name | Autostart | Third-party shell |
 |---------|----------|-----------|-------------------|
 | `minimal-shell` (default) | `EffexorWinPE-amd64.iso` | `effexorwinpe-shell.exe` then `cmd.exe` | none |
-| `desktop-shell` (experimental) | `EffexorWinPE-Desktop-Spike-amd64.iso` | WinXShell starts first, then Effexor Diagnostics in windowed mode, then `cmd.exe` fallback on exit | only if staged under `third_party/winxshell/` |
+| `desktop-shell` (experimental) | `EffexorWinPE-Desktop-Spike-amd64.iso` | desktop bootstrap starts WinXShell, waits for shell startup, logs the result, then launches Effexor Diagnostics in windowed mode before `cmd.exe` fallback | only if staged under `third_party/winxshell/` |
 
 Build:
 
@@ -28,11 +28,13 @@ flowchart TD
     B --> C[wpeinit + InitializeNetwork]
     C --> D{Shell profile}
     D -->|minimal-shell| E[effexorwinpe-shell.exe]
-    D -->|desktop-shell| F[start WinXShell.exe -winpe]
-    F --> G[Launch-EffexorDiagnostics.cmd --wait]
-    G --> H[effexorwinpe-shell.exe --windowed]
-    E --> I[cmd.exe fallback]
-    H --> I
+    D -->|desktop-shell| F[Start-DesktopShell.cmd]
+    F --> G[start WinXShell.exe -winpe]
+    G --> H[wait up to 20 seconds + write startup log]
+    H --> I[Launch-EffexorDiagnostics.cmd --wait]
+    I --> J[effexorwinpe-shell.exe --windowed]
+    E --> K[cmd.exe fallback]
+    J --> K
 ```
 
 Desktop-shell intentionally keeps Effexor Diagnostics as the technician-facing
@@ -46,8 +48,10 @@ Before any experimental ISO is shared outside the lab:
 
 1. Confirm the binary was built from LGPL-2.1 sources (PExplorer `WinXShell_shellpart`
    or an equivalent documented fork).
-2. Ship `COPYING.LGPL-2.1` / license notice beside the binary in the image payload.
-3. Record source URL, commit/tag, build host, and SHA-256 in
+2. Record the tracked `license_file` path in `third_party/winxshell/MANIFEST.json`.
+   `Build-WinPE.ps1` copies that file into the WIM beside the binary as
+   `LICENSE.LGPL-2.1.txt`.
+3. Record source URL, commit/tag, build host, and human-readable SHA-256 notes in
    `third_party/winxshell/PROVENANCE.md`.
 4. Do **not** redistribute closed-source WinXShell UI component packs.
 5. Keep `third_party/winxshell/MANIFEST.json` aligned with the exact revision,
@@ -62,13 +66,20 @@ third_party/winxshell/
   MANIFEST.json          # tracked manifest required by AGENTS.md third-party rules
   PROVENANCE.md          # required, tracked
   LICENSE.upstream-LGPL-2.1.txt
-  LICENSE.LGPL-2.1.txt   # required when binary is staged
   WinXShell.exe          # gitignored; checksum-pinned in PROVENANCE.md
 ```
 
 `Build-WinPE.ps1 -ShellProfile desktop-shell` fails closed if the binary or
-provenance checksum is missing. It also requires the tracked manifest and
-license metadata before copying the third-party shell into the image.
+manifest hash is missing. It also requires:
+
+- a non-`TBD` manifest `sha256`
+- `redistribution_status` other than `hold`
+- a present `WinXShell.exe`
+- a matching binary hash
+- a manifest `license_file` that exists in the repo
+
+During image assembly the tracked manifest license file is copied into the WIM
+under the stable name `LICENSE.LGPL-2.1.txt`.
 
 ## What the spike implements now
 
@@ -78,11 +89,14 @@ license metadata before copying the third-party shell into the image.
 - Tracked third-party manifest and upstream LGPL notice
 - Desktop-shell startup path that:
   - starts WinXShell first
+  - waits for the process to appear with a bounded timeout
+  - records desktop startup events to `X:\EffexorWinPE\reports\desktop-shell-startup.log`
   - launches Effexor Diagnostics automatically
   - runs Diagnostics with `--windowed` so it can remain visible in the taskbar
   - drops to `cmd.exe` after Diagnostics exits
 - `Launch-EffexorDiagnostics.cmd` helper inside the image so Diagnostics can be
   relaunched manually from the shell, file manager, or `cmd.exe`
+- Desktop and Start Menu launcher entries for `X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd`
 
 ## Required but not yet validated here
 
@@ -107,6 +121,9 @@ binary or reproducible local build is currently staged:
   can be closed without killing the desktop shell and can remain visible in the
   taskbar while the shell stays active.
 - Relaunch path: `X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd`
+- Launcher entries:
+  - `X:\Users\Default\Desktop\Effexor Diagnostics.cmd`
+  - `X:\ProgramData\Microsoft\Windows\Start Menu\Programs\Effexor Diagnostics.cmd`
 
 No UI redesign is included in this spike.
 

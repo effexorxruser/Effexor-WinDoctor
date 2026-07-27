@@ -30,7 +30,89 @@ $DesktopShellVendorDir = Join-Path $RepoRoot "third_party/winxshell"
 $DesktopShellBinary = Join-Path $DesktopShellVendorDir "WinXShell.exe"
 $DesktopShellProvenance = Join-Path $DesktopShellVendorDir "PROVENANCE.md"
 $DesktopShellManifest = Join-Path $DesktopShellVendorDir "MANIFEST.json"
-$DesktopShellLicense = Join-Path $DesktopShellVendorDir "LICENSE.LGPL-2.1.txt"
+
+function Resolve-RepoPath {
+    param(
+        [string]$Root,
+        [string]$PathValue
+    )
+
+    if ([IO.Path]::IsPathRooted($PathValue)) {
+        return [IO.Path]::GetFullPath($PathValue)
+    }
+
+    return [IO.Path]::GetFullPath((Join-Path $Root $PathValue))
+}
+
+function Read-DesktopShellManifest {
+    param(
+        [string]$ManifestPath,
+        [string]$Root
+    )
+
+    if (-not (Test-Path -LiteralPath $ManifestPath)) {
+        throw "ShellProfile desktop-shell requires third-party manifest at $ManifestPath."
+    }
+
+    $ManifestData = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    foreach ($Field in @(
+            "project",
+            "revision",
+            "source_url",
+            "license",
+            "license_file",
+            "applied_patches",
+            "build_instructions",
+            "sha256",
+            "redistribution_status"
+        )) {
+        if (-not ($ManifestData.PSObject.Properties.Name -contains $Field)) {
+            throw "Desktop-shell manifest is missing field: $Field"
+        }
+    }
+
+    $LicensePath = Resolve-RepoPath -Root $Root -PathValue $ManifestData.license_file
+    $ManifestData | Add-Member -NotePropertyName ResolvedLicensePath -NotePropertyValue $LicensePath -Force
+    return $ManifestData
+}
+
+function Assert-DesktopShellProvenanceAligned {
+    param(
+        [object]$ManifestData,
+        [string]$ProvenancePath
+    )
+
+    if (-not (Test-Path -LiteralPath $ProvenancePath)) {
+        throw "ShellProfile desktop-shell requires provenance at $ProvenancePath."
+    }
+
+    $ProvenanceText = Get-Content -LiteralPath $ProvenancePath -Raw
+    foreach ($ExpectedValue in @(
+            $ManifestData.revision,
+            $ManifestData.source_url,
+            $ManifestData.license,
+            $ManifestData.license_file
+        )) {
+        if ($ProvenanceText -notlike "*$ExpectedValue*") {
+            throw "Desktop-shell provenance must include manifest value: $ExpectedValue"
+        }
+    }
+
+    if ($ManifestData.redistribution_status -eq "hold" -and $ProvenanceText -notmatch '(?i)\bhold\b') {
+        throw "Desktop-shell provenance must document redistribution hold status."
+    }
+
+    if ($ManifestData.sha256 -eq "TBD") {
+        if ($ProvenanceText -notmatch '(?i)SHA-256 of `WinXShell\.exe`\s*\|\s*_?TBD_?\s*\|') {
+            throw "Desktop-shell provenance must keep SHA-256 as TBD while the manifest does."
+        }
+        return
+    }
+
+    if ($ProvenanceText -notlike "*$($ManifestData.sha256)*") {
+        throw "Desktop-shell provenance must include the manifest SHA-256 value."
+    }
+}
 
 $AdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits/10/Assessment and Deployment Kit"
 $WinPERoot = Join-Path $AdkRoot "Windows Preinstallation Environment"
@@ -125,47 +207,79 @@ exit /b 0
         "X:\EffexorWinPE\bin\effexorwinpe-shell.exe"
     )
     if ($ShellProfile -eq "desktop-shell") {
+        $DesktopShellMetadata = Read-DesktopShellManifest -ManifestPath $DesktopShellManifest -Root $RepoRoot
         if (-not (Test-Path $DesktopShellBinary)) {
             throw "ShellProfile desktop-shell requires $DesktopShellBinary (see docs/desktop-shell-spike.md)."
         }
-        if (-not (Test-Path $DesktopShellProvenance)) {
-            throw "ShellProfile desktop-shell requires provenance at $DesktopShellProvenance."
+        Assert-DesktopShellProvenanceAligned -ManifestData $DesktopShellMetadata -ProvenancePath $DesktopShellProvenance
+        if ($DesktopShellMetadata.sha256 -eq "TBD") {
+            throw "ShellProfile desktop-shell requires a real sha256 in $DesktopShellManifest before desktop-shell builds."
         }
-        if (-not (Test-Path $DesktopShellManifest)) {
-            throw "ShellProfile desktop-shell requires third-party manifest at $DesktopShellManifest."
+        if ($DesktopShellMetadata.redistribution_status -eq "hold") {
+            throw "ShellProfile desktop-shell is blocked while redistribution_status=hold in $DesktopShellManifest."
         }
-        if (-not (Test-Path $DesktopShellLicense)) {
-            throw "ShellProfile desktop-shell requires $DesktopShellLicense before redistribution."
+        if (-not (Test-Path -LiteralPath $DesktopShellMetadata.ResolvedLicensePath)) {
+            throw "ShellProfile desktop-shell requires license_file from manifest: $($DesktopShellMetadata.license_file)"
         }
-        $ExpectedHash = $null
-        foreach ($Line in Get-Content -LiteralPath $DesktopShellProvenance) {
-            if ($Line -match '(?i)SHA-256 of `WinXShell\.exe`\s*\|\s*([0-9A-Fa-f]{64})\s*\|') {
-                $ExpectedHash = $Matches[1].ToUpperInvariant()
-                break
-            }
-            if ($Line -match '(?i)^\|\s*SHA-256 of `WinXShell\.exe`\s*\|\s*([0-9A-Fa-f]{64})\s*\|') {
-                $ExpectedHash = $Matches[1].ToUpperInvariant()
-                break
-            }
-        }
-        if (-not $ExpectedHash -or $ExpectedHash -eq "TBD") {
-            throw "PROVENANCE.md must record a real SHA-256 for WinXShell.exe before desktop-shell builds."
-        }
+        $ExpectedHash = $DesktopShellMetadata.sha256.ToUpperInvariant()
         $ActualHash = (Get-FileHash -LiteralPath $DesktopShellBinary -Algorithm SHA256).Hash.ToUpperInvariant()
         if ($ActualHash -ne $ExpectedHash) {
             throw "WinXShell.exe SHA-256 mismatch. expected=$ExpectedHash actual=$ActualHash"
         }
         $VendorTarget = Join-Path $PayloadTarget "third_party/winxshell"
+        $DesktopBootstrap = Join-Path $PayloadTarget "Start-DesktopShell.cmd"
+        $DesktopBootstrapBody = @"
+@echo off
+setlocal EnableExtensions
+set "SHELL_EXE=X:\EffexorWinPE\third_party\winxshell\WinXShell.exe"
+set "DIAGNOSTICS_LAUNCHER=X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd"
+set "STARTUP_LOG=X:\EffexorWinPE\reports\desktop-shell-startup.log"
+set "READY_TIMEOUT_SECONDS=20"
+>>"%STARTUP_LOG%" echo [%date% %time%] Desktop bootstrap started.
+if not exist "%SHELL_EXE%" (
+  >>"%STARTUP_LOG%" echo [%date% %time%] ERROR missing WinXShell binary.
+  exit /b 1
+)
+start "Effexor Desktop" "%SHELL_EXE%" -winpe
+set /a remaining=%READY_TIMEOUT_SECONDS%
+:wait_for_shell
+tasklist /FI "IMAGENAME eq WinXShell.exe" | find /I "WinXShell.exe" >nul
+if not errorlevel 1 goto shell_ready
+if %remaining% LEQ 0 goto shell_timeout
+timeout /t 1 /nobreak >nul
+set /a remaining-=1
+goto wait_for_shell
+:shell_ready
+>>"%STARTUP_LOG%" echo [%date% %time%] WinXShell detected; launching Diagnostics.
+call "%DIAGNOSTICS_LAUNCHER%" --wait
+set "DIAGNOSTICS_EXIT=%ERRORLEVEL%"
+>>"%STARTUP_LOG%" echo [%date% %time%] Diagnostics exited with code %DIAGNOSTICS_EXIT%.
+exit /b %DIAGNOSTICS_EXIT%
+:shell_timeout
+>>"%STARTUP_LOG%" echo [%date% %time%] ERROR WinXShell did not appear within timeout.
+exit /b 1
+"@
+        $DiagnosticsDesktopEntryBody = @"
+@echo off
+call X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd
+"@
+        foreach ($EntryPath in @(
+                (Join-Path $MountDirectory "Users/Default/Desktop/Effexor Diagnostics.cmd"),
+                (Join-Path $MountDirectory "ProgramData/Microsoft/Windows/Start Menu/Programs/Effexor Diagnostics.cmd")
+            )) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $EntryPath) | Out-Null
+            Set-Content -LiteralPath $EntryPath -Value $DiagnosticsDesktopEntryBody -Encoding ASCII
+        }
         New-Item -ItemType Directory -Force -Path $VendorTarget | Out-Null
+        Set-Content -LiteralPath $DesktopBootstrap -Value $DesktopBootstrapBody -Encoding ASCII
         Copy-Item -LiteralPath $DesktopShellBinary -Destination (Join-Path $VendorTarget "WinXShell.exe") -Force
-        Copy-Item -LiteralPath $DesktopShellLicense -Destination (Join-Path $VendorTarget "LICENSE.LGPL-2.1.txt") -Force
+        Copy-Item -LiteralPath $DesktopShellMetadata.ResolvedLicensePath -Destination (Join-Path $VendorTarget "LICENSE.LGPL-2.1.txt") -Force
         Copy-Item -LiteralPath $DesktopShellProvenance -Destination (Join-Path $VendorTarget "PROVENANCE.md") -Force
         Copy-Item -LiteralPath $DesktopShellManifest -Destination (Join-Path $VendorTarget "MANIFEST.json") -Force
         # Launch desktop shell first, then start Diagnostics windowed so it stays
         # visible in the taskbar. If Diagnostics exits, cmd.exe remains available.
         $StartnetShellLines = @(
-            'start "Effexor Desktop" /min "X:\EffexorWinPE\third_party\winxshell\WinXShell.exe" -winpe',
-            'call X:\EffexorWinPE\Launch-EffexorDiagnostics.cmd --wait'
+            'call X:\EffexorWinPE\Start-DesktopShell.cmd'
         )
     }
 
