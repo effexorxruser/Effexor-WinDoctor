@@ -1,0 +1,15 @@
+{
+  "schema_name": "verification-report",
+  "schema_version": "1.0.0",
+  "verification_id": "verify-ffffffffffffffffffffffff",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "execution_id": "exec-eeeeeeeeeeeeeeeeeeeeeeee",
+  "verifier": "boot-verify",
+  "verified_at": "2026-07-27T12:11:00Z",
+  "expected_conditions": [{ "name": "bcd_readable", "status": "met" }],
+  "observed_conditions": [{ "name": "bcd_readable", "status": "met" }],
+  "status": "resolved",
+  "regressions": [],
+  "remaining_risks": [],
+  "evidence_refs": ["not-an-evidence-id"]
+}

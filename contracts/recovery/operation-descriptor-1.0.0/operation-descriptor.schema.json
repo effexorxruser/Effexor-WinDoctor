@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/operation-descriptor-1.0.0/operation-descriptor.schema.json",
+  "title": "Effexor Recovery operation descriptor 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "operation_id",
+    "version",
+    "title",
+    "description",
+    "module",
+    "risk_class",
+    "mutation_class",
+    "required_evidence",
+    "required_capabilities",
+    "supported_runtimes",
+    "requires_backup",
+    "rollback_quality",
+    "requires_explicit_approval",
+    "parameters_schema_ref",
+    "result_schema_ref"
+  ],
+  "properties": {
+    "schema_name": { "const": "operation-descriptor" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "operation_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/operationId" },
+    "version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "module": { "type": "string", "minLength": 1 },
+    "risk_class": {
+      "type": "string",
+      "enum": ["read_only", "reversible", "controlled_mutation", "destructive", "irreversible"]
+    },
+    "mutation_class": {
+      "type": "string",
+      "enum": ["none", "metadata", "config", "data", "firmware"]
+    },
+    "required_evidence": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "supported_runtimes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/runtime" }
+    },
+    "requires_backup": { "type": "boolean" },
+    "rollback_quality": {
+      "type": "string",
+      "enum": ["exact", "best_effort", "compensating", "unavailable"]
+    },
+    "requires_explicit_approval": { "type": "boolean" },
+    "parameters_schema_ref": { "type": "string", "minLength": 1 },
+    "result_schema_ref": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "read_only" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "mutation_class": { "const": "none" },
+          "requires_backup": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "risk_class": {
+            "enum": ["reversible", "controlled_mutation", "destructive", "irreversible"]
+          }
+        },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "mutation_class": {
+            "type": "string",
+            "enum": ["metadata", "config", "data", "firmware"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "risk_class": {
+            "enum": ["controlled_mutation", "destructive", "irreversible"]
+          }
+        },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "requires_explicit_approval": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "irreversible" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "rollback_quality": { "const": "unavailable" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "risk_class": { "const": "reversible" } },
+        "required": ["risk_class"]
+      },
+      "then": {
+        "properties": {
+          "rollback_quality": {
+            "type": "string",
+            "enum": ["exact", "best_effort", "compensating"]
+          }
+        }
+      }
+    }
+  ]
+}

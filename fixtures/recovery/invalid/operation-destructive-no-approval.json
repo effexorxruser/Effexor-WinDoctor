@@ -1,0 +1,19 @@
+{
+  "schema_name": "operation-descriptor",
+  "schema_version": "1.0.0",
+  "operation_id": "disk.wipe_partition",
+  "version": "1.0.0",
+  "title": "Wipe partition",
+  "description": "Destructive wipe without approval.",
+  "module": "disk",
+  "risk_class": "destructive",
+  "mutation_class": "data",
+  "required_evidence": ["disk_identity"],
+  "required_capabilities": ["write_disk"],
+  "supported_runtimes": ["winpe"],
+  "requires_backup": true,
+  "rollback_quality": "compensating",
+  "requires_explicit_approval": false,
+  "parameters_schema_ref": "operations/disk.wipe_partition.params-1.0.0",
+  "result_schema_ref": "operations/disk.wipe_partition.result-1.0.0"
+}

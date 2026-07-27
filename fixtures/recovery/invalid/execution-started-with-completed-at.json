@@ -1,0 +1,14 @@
+{
+  "schema_name": "execution-event",
+  "schema_version": "1.0.0",
+  "execution_id": "exec-eeeeeeeeeeeeeeeeeeeeeeee",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "operation_id": "boot.inspect_bcd",
+  "operation_version": "1.0.0",
+  "target_id": "target-disk-nvme0n1",
+  "started_at": "2026-07-27T12:10:00Z",
+  "completed_at": "2026-07-27T12:10:01Z",
+  "status": "started",
+  "exit_code": null,
+  "changed_resources": []
+}

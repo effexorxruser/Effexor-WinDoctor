@@ -1,0 +1,15 @@
+{
+  "schema_name": "finding",
+  "schema_version": "1.0.0",
+  "finding_id": "finding-cccccccccccccccccccccccc",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "severity": "info",
+  "confidence": "low",
+  "title": "Insufficient evidence for boot path",
+  "rationale": "Collector could not open the BCD store.",
+  "evidence_refs": [],
+  "affected_target_ids": ["target-disk-nvme0n1"],
+  "recommended_workflows": ["boot-doctor"],
+  "limitations": ["BCD inaccessible"],
+  "insufficient_evidence": true
+}

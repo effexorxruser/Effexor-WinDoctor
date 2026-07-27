@@ -1,0 +1,13 @@
+{
+  "schema_name": "target",
+  "schema_version": "1.0.0",
+  "target_id": "target-disk-nvme0n1",
+  "target_type": "disk",
+  "discovered_at": "2026-07-27T12:00:00Z",
+  "display_name": "x",
+  "stable_identity": { "disk_serial": "s" },
+  "runtime_locators": {},
+  "capabilities": [],
+  "limitations": [],
+  "extra": 1
+}

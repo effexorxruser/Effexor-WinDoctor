@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/case-manifest-1.0.0/case-manifest.schema.json",
+  "title": "Effexor Recovery case manifest 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "case_id",
+    "created_at",
+    "updated_at",
+    "runtime",
+    "current_state",
+    "target_ids",
+    "privacy_class"
+  ],
+  "properties": {
+    "schema_name": { "const": "case-manifest" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "created_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "updated_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "runtime": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/runtime" },
+    "current_state": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "DISCOVERING",
+        "SNAPSHOTTED",
+        "DIAGNOSING",
+        "DIAGNOSED",
+        "PLANNED",
+        "AWAITING_APPROVAL",
+        "EXECUTING",
+        "VERIFYING",
+        "RESOLVED",
+        "PARTIALLY_RESOLVED",
+        "BLOCKED",
+        "ESCALATED",
+        "CANCELLED",
+        "FAILED",
+        "ROLLBACK_REQUIRED",
+        "ROLLED_BACK",
+        "DATA_PRESERVATION_REQUIRED"
+      ]
+    },
+    "target_ids": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" }
+    },
+    "privacy_class": {
+      "type": "string",
+      "enum": ["minimal", "standard", "elevated", "restricted"]
+    },
+    "technician_storage_reference": {
+      "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/relativePath"
+    }
+  }
+}

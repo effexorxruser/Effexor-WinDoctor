@@ -1,0 +1,19 @@
+{
+  "schema_name": "operation-descriptor",
+  "schema_version": "1.0.0",
+  "operation_id": "boot.repair_bcd",
+  "version": "1.0.0",
+  "title": "Repair BCD store",
+  "description": "Reversible BCD repair.",
+  "module": "boot",
+  "risk_class": "reversible",
+  "mutation_class": "none",
+  "required_evidence": ["boot_store_locator"],
+  "required_capabilities": ["write_boot_store"],
+  "supported_runtimes": ["winpe"],
+  "requires_backup": true,
+  "rollback_quality": "exact",
+  "requires_explicit_approval": false,
+  "parameters_schema_ref": "operations/boot.repair_bcd.params-1.0.0",
+  "result_schema_ref": "operations/boot.repair_bcd.result-1.0.0"
+}

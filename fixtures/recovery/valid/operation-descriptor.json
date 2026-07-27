@@ -1,0 +1,19 @@
+{
+  "schema_name": "operation-descriptor",
+  "schema_version": "1.0.0",
+  "operation_id": "boot.inspect_bcd",
+  "version": "1.0.0",
+  "title": "Inspect BCD store",
+  "description": "Read-only inspection of a discovered boot store.",
+  "module": "boot",
+  "risk_class": "read_only",
+  "mutation_class": "none",
+  "required_evidence": ["boot_store_locator"],
+  "required_capabilities": ["read_boot_store"],
+  "supported_runtimes": ["winpe", "windows"],
+  "requires_backup": false,
+  "rollback_quality": "unavailable",
+  "requires_explicit_approval": false,
+  "parameters_schema_ref": "operations/boot.inspect_bcd.params-1.0.0",
+  "result_schema_ref": "operations/boot.inspect_bcd.result-1.0.0"
+}

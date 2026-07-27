@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/evidence-bundle-1.0.0/evidence-bundle.schema.json",
+  "title": "Effexor Recovery evidence bundle 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "evidence_id",
+    "case_id",
+    "target_id",
+    "collector",
+    "collector_version",
+    "captured_at",
+    "source_status",
+    "facts",
+    "artifacts",
+    "limitations"
+  ],
+  "properties": {
+    "schema_name": { "const": "evidence-bundle" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "evidence_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+    "collector": { "type": "string", "minLength": 1 },
+    "collector_version": { "type": "string", "minLength": 1 },
+    "captured_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "source_status": {
+      "type": "string",
+      "enum": ["ok", "partial", "unavailable", "error"]
+    },
+    "facts_schema": { "type": "string", "minLength": 1 },
+    "facts": {},
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/artifactRef" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

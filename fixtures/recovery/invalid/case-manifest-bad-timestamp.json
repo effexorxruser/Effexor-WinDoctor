@@ -1,0 +1,11 @@
+{
+  "schema_name": "case-manifest",
+  "schema_version": "1.0.0",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "created_at": "yesterday",
+  "updated_at": "2026-07-27T12:05:00Z",
+  "runtime": "winpe",
+  "current_state": "NEW",
+  "target_ids": ["target-disk-nvme0n1"],
+  "privacy_class": "standard"
+}

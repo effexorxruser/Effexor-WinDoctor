@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/finding-1.0.0/finding.schema.json",
+  "title": "Effexor Recovery finding 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "finding_id",
+    "case_id",
+    "severity",
+    "confidence",
+    "title",
+    "rationale",
+    "evidence_refs",
+    "affected_target_ids",
+    "recommended_workflows",
+    "limitations"
+  ],
+  "properties": {
+    "schema_name": { "const": "finding" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "finding_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/findingId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "rationale": { "type": "string", "minLength": 1 },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" }
+    },
+    "affected_target_ids": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" }
+    },
+    "recommended_workflows": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "insufficient_evidence": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_refs": { "type": "array", "maxItems": 0 }
+        },
+        "required": ["evidence_refs"]
+      },
+      "then": {
+        "required": ["insufficient_evidence"],
+        "properties": {
+          "insufficient_evidence": { "const": true }
+        }
+      }
+    }
+  ]
+}
