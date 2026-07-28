@@ -17,15 +17,17 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	report := IntegrityReport{
-		CaseID:          caseID,
-		CheckedAt:       formatTime(s.clock.Now()),
-		StagingEntries:  []string{},
-		OrphanSnapshots: []string{},
-		OrphanArtifacts: []string{},
-		TemporaryFiles:  []string{},
-		Warnings:        []string{},
-		Errors:          []string{},
-		Status:          IntegrityOK,
+		CaseID:           caseID,
+		CheckedAt:        formatTime(s.clock.Now()),
+		StagingEntries:   []string{},
+		OrphanSnapshots:  []string{},
+		OrphanArtifacts:  []string{},
+		TemporaryFiles:   []string{},
+		ValidCommitIDs:   []string{},
+		BrokenCommitTail: []string{},
+		Warnings:         []string{},
+		Errors:           []string{},
+		Status:           IntegrityOK,
 	}
 
 	if err := s.ensureCaseTreeSafe(caseID); err != nil {
@@ -40,22 +42,30 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 		return report, nil
 	}
 
-	chain, err := s.loadCommitChain(caseID)
+	chain, brokenTail, err := s.loadCommitChainPrefix(caseID)
+	if len(brokenTail) > 0 {
+		report.BrokenCommitTail = append(report.BrokenCommitTail, brokenTail...)
+		for _, name := range brokenTail {
+			report.Warnings = append(report.Warnings, "broken commit tail: "+name)
+			report.Errors = append(report.Errors, "broken commit tail: "+name)
+		}
+	}
 	if err != nil {
 		report.Status = IntegrityCorrupt
 		report.Errors = append(report.Errors, err.Error())
-		return report, nil
+		// Continue with the valid prefix so orphans and valid commits are still classified.
 	}
 	report.CommitCount = len(chain)
 	if len(chain) > 0 {
 		report.LatestCommit = chain[len(chain)-1].CommitID
 	}
 
-	// Committed snapshot IDs come from the chain regardless of load success.
+	// Committed snapshot IDs come from the valid prefix only.
 	committedSnaps := map[string]struct{}{}
 	referencedBlobs := map[string]struct{}{}
 	for _, c := range chain {
 		committedSnaps[c.SnapshotID] = struct{}{}
+		report.ValidCommitIDs = append(report.ValidCommitIDs, c.CommitID)
 		snap, err := s.loadSnapshotAtCommit(caseID, c)
 		if err != nil {
 			report.Status = IntegrityCorrupt

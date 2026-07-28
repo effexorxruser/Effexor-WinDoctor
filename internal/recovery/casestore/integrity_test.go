@@ -169,8 +169,58 @@ func TestLatestCorruptionDoesNotFallback(t *testing.T) {
 	if !errors.As(err, &ie) {
 		t.Fatalf("want IntegrityError, got %v", err)
 	}
-	if ie.LastValidCommitID != c2.CommitID {
-		t.Fatalf("last valid commit=%s want latest %s (not fallback to %s)", ie.LastValidCommitID, c2.CommitID, c1.CommitID)
+	if ie.LastValidCommitID != c1.CommitID || ie.LastValidSequence != c1.Sequence || ie.LastValidSnapshotID != c1.SnapshotID {
+		t.Fatalf("last valid=%s seq=%d snap=%s want c1 %s seq=%d snap=%s (not failing c2 %s)",
+			ie.LastValidCommitID, ie.LastValidSequence, ie.LastValidSnapshotID,
+			c1.CommitID, c1.Sequence, c1.SnapshotID, c2.CommitID)
+	}
+}
+
+func TestCorruptFirstCommitLastValidEmpty(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	snap := baseSnapshot(t)
+	c1 := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
+
+	path := filepath.Join(st.snapshotDir(snap.Case.CaseID, c1.SnapshotID), "documents", "case-manifest.json")
+	if err := os.WriteFile(path, []byte(`{"schema_name":"case-manifest"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := st.LoadLatest(context.Background(), snap.Case.CaseID)
+	if err == nil {
+		t.Fatal("expected integrity error")
+	}
+	var ie *IntegrityError
+	if !errors.As(err, &ie) {
+		t.Fatalf("want IntegrityError, got %v", err)
+	}
+	if ie.LastValidCommitID != "" || ie.LastValidSequence != 0 || ie.LastValidSnapshotID != "" {
+		t.Fatalf("want empty LastValid*, got commit=%q seq=%d snap=%q", ie.LastValidCommitID, ie.LastValidSequence, ie.LastValidSnapshotID)
+	}
+}
+
+func TestCorruptSecondCommitLastValidFirst(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	snap := baseSnapshot(t)
+	c1 := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
+	snap2 := mutateCaseUpdatedAt(snap, "2026-07-27T15:00:00Z")
+	c2 := mustCommit(t, st, snap2, nil, CommitReasonCaseSnapshot)
+
+	path := filepath.Join(st.snapshotDir(snap.Case.CaseID, c2.SnapshotID), "documents", "case-manifest.json")
+	if err := os.WriteFile(path, []byte(`{"broken":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := st.LoadLatest(context.Background(), snap.Case.CaseID)
+	if err == nil {
+		t.Fatal("expected integrity error")
+	}
+	var ie *IntegrityError
+	if !errors.As(err, &ie) {
+		t.Fatalf("want IntegrityError, got %v", err)
+	}
+	if ie.LastValidCommitID != c1.CommitID || ie.LastValidSequence != c1.Sequence || ie.LastValidSnapshotID != c1.SnapshotID {
+		t.Fatalf("want LastValid=c1, got commit=%s seq=%d snap=%s", ie.LastValidCommitID, ie.LastValidSequence, ie.LastValidSnapshotID)
 	}
 }
 

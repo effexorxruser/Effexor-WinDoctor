@@ -37,28 +37,40 @@ func (s *Store) LoadLatest(ctx context.Context, caseID string) (Snapshot, Commit
 		return Snapshot{}, CommitInfo{}, fmt.Errorf("%w: %s", ErrCaseNotFound, caseID)
 	}
 
-	head := chain[len(chain)-1]
-	snap, err := s.loadSnapshotAtCommit(caseID, head)
-	if err != nil {
-		return Snapshot{}, CommitInfo{}, &IntegrityError{
-			CaseID:              caseID,
-			Message:             "latest committed state is corrupt; refusing automatic fallback",
-			LastValidSequence:   head.Sequence,
-			LastValidCommitID:   head.CommitID,
-			LastValidSnapshotID: head.SnapshotID,
-			Cause:               err,
+	var lastSeq uint64
+	var lastCommitID, lastSnapshotID string
+	for i, c := range chain {
+		snap, err := s.loadSnapshotAtCommit(caseID, c)
+		if err != nil {
+			msg := "committed state is corrupt; refusing automatic fallback"
+			if i == len(chain)-1 {
+				msg = "latest committed state is corrupt; refusing automatic fallback"
+			}
+			return Snapshot{}, CommitInfo{}, &IntegrityError{
+				CaseID:              caseID,
+				Message:             msg,
+				LastValidSequence:   lastSeq,
+				LastValidCommitID:   lastCommitID,
+				LastValidSnapshotID: lastSnapshotID,
+				Cause:               err,
+			}
+		}
+		lastSeq = c.Sequence
+		lastCommitID = c.CommitID
+		lastSnapshotID = c.SnapshotID
+		if i == len(chain)-1 {
+			return snap, CommitInfo{
+				CaseID:         caseID,
+				SnapshotID:     c.SnapshotID,
+				CommitID:       c.CommitID,
+				Sequence:       c.Sequence,
+				ParentCommitID: parentString(c.ParentCommitID),
+				CommittedAt:    c.CommittedAt,
+				Idempotent:     false,
+			}, nil
 		}
 	}
-	info := CommitInfo{
-		CaseID:         caseID,
-		SnapshotID:     head.SnapshotID,
-		CommitID:       head.CommitID,
-		Sequence:       head.Sequence,
-		ParentCommitID: parentString(head.ParentCommitID),
-		CommittedAt:    head.CommittedAt,
-		Idempotent:     false,
-	}
-	return snap, info, nil
+	return Snapshot{}, CommitInfo{}, fmt.Errorf("%w: %s", ErrCaseNotFound, caseID)
 }
 
 func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot, error) {
@@ -104,8 +116,8 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 		if info.IsDir() {
 			return ensureNotSymlink(path)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%w: symlink document %s", ErrPathUnsafe, path)
+		if err := ensureNotSymlink(path); err != nil {
+			return err
 		}
 		rel, err := filepath.Rel(docsDir, path)
 		if err != nil {
@@ -158,6 +170,10 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 			if err := domain.DecodeAndValidateJSON(raw, &t); err != nil {
 				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
 			}
+			want := "targets/" + t.TargetID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: target path %q does not match target_id %q", ErrIntegrity, d.RelativePath, t.TargetID)
+			}
 			snap.Targets = append(snap.Targets, t)
 		case strings.HasPrefix(d.RelativePath, "evidence/") && strings.HasSuffix(d.RelativePath, ".json"):
 			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
@@ -167,6 +183,10 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 			var e domain.EvidenceBundle
 			if err := domain.DecodeAndValidateJSON(raw, &e); err != nil {
 				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "evidence/" + e.EvidenceID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: evidence path %q does not match evidence_id %q", ErrIntegrity, d.RelativePath, e.EvidenceID)
 			}
 			snap.EvidenceBundles = append(snap.EvidenceBundles, e)
 		}
@@ -179,6 +199,9 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 		return Snapshot{}, err
 	}
 	if err := compareManifestArtifacts(manifest, snap); err != nil {
+		return Snapshot{}, err
+	}
+	if err := compareCanonicalDocuments(manifest, snap); err != nil {
 		return Snapshot{}, err
 	}
 
@@ -228,9 +251,16 @@ func validateSnapshotManifest(m snapshotManifest, caseID, commitCaseID string) e
 	}
 
 	seenDocs := make(map[string]struct{}, len(m.Documents))
+	caseManifestCount := 0
 	for i, d := range m.Documents {
 		if err := rejectTraversal(d.RelativePath); err != nil {
 			return fmt.Errorf("%w: documents[%d].relative_path: %v", ErrIntegrity, i, err)
+		}
+		if err := validateManifestDocumentPath(d.RelativePath); err != nil {
+			return fmt.Errorf("%w: documents[%d]: %v", ErrIntegrity, i, err)
+		}
+		if d.RelativePath == "case-manifest.json" {
+			caseManifestCount++
 		}
 		if _, ok := seenDocs[d.RelativePath]; ok {
 			return fmt.Errorf("%w: duplicate document relative_path %q", ErrIntegrity, d.RelativePath)
@@ -245,6 +275,9 @@ func validateSnapshotManifest(m snapshotManifest, caseID, commitCaseID string) e
 		if d.MediaType != mediaTypeJSON {
 			return fmt.Errorf("%w: documents[%d] media_type must be %q", ErrIntegrity, i, mediaTypeJSON)
 		}
+	}
+	if caseManifestCount != 1 {
+		return fmt.Errorf("%w: expected exactly one case-manifest.json, got %d", ErrIntegrity, caseManifestCount)
 	}
 
 	seenArts := make(map[string]struct{}, len(m.Artifacts))
@@ -361,25 +394,107 @@ func compareManifestArtifacts(manifest snapshotManifest, snap Snapshot) error {
 	return nil
 }
 
+func validateManifestDocumentPath(rel string) error {
+	if rel == "case-manifest.json" {
+		return nil
+	}
+	if strings.HasPrefix(rel, "targets/") && strings.HasSuffix(rel, ".json") {
+		id := strings.TrimSuffix(strings.TrimPrefix(rel, "targets/"), ".json")
+		if reTargetID.MatchString(id) && !strings.Contains(id, "/") {
+			return nil
+		}
+		return fmt.Errorf("%w: non-canonical target document path %q", ErrIntegrity, rel)
+	}
+	if strings.HasPrefix(rel, "evidence/") && strings.HasSuffix(rel, ".json") {
+		id := strings.TrimSuffix(strings.TrimPrefix(rel, "evidence/"), ".json")
+		if reEvidenceID.MatchString(id) && !strings.Contains(id, "/") {
+			return nil
+		}
+		return fmt.Errorf("%w: non-canonical evidence document path %q", ErrIntegrity, rel)
+	}
+	return fmt.Errorf("%w: non-canonical document path %q", ErrIntegrity, rel)
+}
+
+func compareCanonicalDocuments(manifest snapshotManifest, snap Snapshot) error {
+	docs, err := prepareDocuments(snap)
+	if err != nil {
+		return err
+	}
+	if len(docs) != len(manifest.Documents) {
+		return fmt.Errorf("%w: canonical document count %d != manifest %d", ErrIntegrity, len(docs), len(manifest.Documents))
+	}
+	caseManifestCount := 0
+	for i, d := range docs {
+		m := manifest.Documents[i]
+		if d.RelativePath != m.RelativePath || d.SHA256 != m.SHA256 || d.SizeBytes != m.SizeBytes || d.MediaType != m.MediaType {
+			return fmt.Errorf("%w: canonical document mismatch at %q", ErrIntegrity, d.RelativePath)
+		}
+		if d.RelativePath == "case-manifest.json" {
+			caseManifestCount++
+		}
+	}
+	if caseManifestCount != 1 {
+		return fmt.Errorf("%w: expected exactly one case-manifest.json, got %d", ErrIntegrity, caseManifestCount)
+	}
+	for _, t := range snap.Targets {
+		want := "targets/" + t.TargetID + ".json"
+		found := false
+		for _, m := range manifest.Documents {
+			if m.RelativePath == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: missing canonical target document %s", ErrIntegrity, want)
+		}
+	}
+	for _, e := range snap.EvidenceBundles {
+		want := "evidence/" + e.EvidenceID + ".json"
+		found := false
+		for _, m := range manifest.Documents {
+			if m.RelativePath == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: missing canonical evidence document %s", ErrIntegrity, want)
+		}
+	}
+	return nil
+}
+
 type loadedCommit struct {
 	record commitRecord
 	path   string
 }
 
 func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
+	valid, _, err := s.loadCommitChainPrefix(caseID)
+	if err != nil {
+		return nil, err
+	}
+	return valid, nil
+}
+
+// loadCommitChainPrefix returns the longest valid commit prefix, any broken/malformed
+// tail filenames, and a non-nil error when the chain is incomplete or corrupt.
+func (s *Store) loadCommitChainPrefix(caseID string) (valid []commitRecord, brokenTail []string, err error) {
 	dir := s.commitsDir(caseID)
 	if err := ensureDirNotSymlink(dir); err != nil && !os.IsNotExist(err) {
-		return nil, err
+		return nil, nil, err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	var loaded []loadedCommit
+	var malformed []string
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || isTempStoreName(name) || !strings.HasSuffix(name, ".json") {
@@ -387,30 +502,25 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 		}
 		path := filepath.Join(dir, name)
 		if err := ensureNotSymlink(path); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, &IntegrityError{CaseID: caseID, Message: "failed reading commit", Cause: err}
+			return nil, nil, &IntegrityError{CaseID: caseID, Message: "failed reading commit", Cause: err}
 		}
 		var rec commitRecord
 		if err := decodeStrict(raw, &rec); err != nil {
-			return nil, &IntegrityError{
-				CaseID:  caseID,
-				Message: "malformed final commit record " + name,
-				Cause:   err,
-			}
+			malformed = append(malformed, name)
+			continue
 		}
 		if err := validateCommitRecord(rec, caseID); err != nil {
-			return nil, &IntegrityError{CaseID: caseID, Message: "invalid commit " + name, Cause: err}
+			malformed = append(malformed, name)
+			continue
 		}
 		wantName := commitFileName(rec.Sequence, rec.CommitID)
 		if name != wantName {
-			return nil, &IntegrityError{
-				CaseID:  caseID,
-				Message: fmt.Sprintf("commit filename %s does not match content (%s)", name, wantName),
-				Cause:   ErrIntegrity,
-			}
+			malformed = append(malformed, name)
+			continue
 		}
 		loaded = append(loaded, loadedCommit{record: rec, path: path})
 	}
@@ -424,16 +534,32 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 		rec := item.record
 		wantSeq := uint64(i + 1)
 		if rec.Sequence != wantSeq {
-			return nil, &IntegrityError{
-				CaseID:            caseID,
-				Message:           fmt.Sprintf("commit sequence gap: got %d want %d", rec.Sequence, wantSeq),
-				LastValidSequence: uint64(i),
-				Cause:             ErrIntegrity,
+			for _, rem := range loaded[i:] {
+				brokenTail = append(brokenTail, filepath.Base(rem.path))
+			}
+			brokenTail = append(brokenTail, malformed...)
+			var lastCommitID, lastSnapshotID string
+			if len(out) > 0 {
+				prev := out[len(out)-1]
+				lastCommitID = prev.CommitID
+				lastSnapshotID = prev.SnapshotID
+			}
+			return out, brokenTail, &IntegrityError{
+				CaseID:              caseID,
+				Message:             fmt.Sprintf("commit sequence gap: got %d want %d", rec.Sequence, wantSeq),
+				LastValidSequence:   uint64(i),
+				LastValidCommitID:   lastCommitID,
+				LastValidSnapshotID: lastSnapshotID,
+				Cause:               ErrIntegrity,
 			}
 		}
 		if i == 0 {
 			if rec.ParentCommitID != nil {
-				return nil, &IntegrityError{
+				for _, rem := range loaded[i:] {
+					brokenTail = append(brokenTail, filepath.Base(rem.path))
+				}
+				brokenTail = append(brokenTail, malformed...)
+				return nil, brokenTail, &IntegrityError{
 					CaseID:  caseID,
 					Message: "first commit must have null parent_commit_id",
 					Cause:   ErrIntegrity,
@@ -442,7 +568,11 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 		} else {
 			prev := out[i-1]
 			if rec.ParentCommitID == nil || *rec.ParentCommitID != prev.CommitID {
-				return nil, &IntegrityError{
+				for _, rem := range loaded[i:] {
+					brokenTail = append(brokenTail, filepath.Base(rem.path))
+				}
+				brokenTail = append(brokenTail, malformed...)
+				return out, brokenTail, &IntegrityError{
 					CaseID:              caseID,
 					Message:             "parent_commit_id mismatch",
 					LastValidSequence:   prev.Sequence,
@@ -454,9 +584,29 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 		}
 		out = append(out, rec)
 	}
-	return out, nil
-}
 
+	if len(malformed) > 0 {
+		brokenTail = append([]string(nil), malformed...)
+		var lastSeq uint64
+		var lastCommitID, lastSnapshotID string
+		if len(out) > 0 {
+			last := out[len(out)-1]
+			lastSeq = last.Sequence
+			lastCommitID = last.CommitID
+			lastSnapshotID = last.SnapshotID
+		}
+		msg := "malformed final commit record " + malformed[0]
+		return out, brokenTail, &IntegrityError{
+			CaseID:              caseID,
+			Message:             msg,
+			LastValidSequence:   lastSeq,
+			LastValidCommitID:   lastCommitID,
+			LastValidSnapshotID: lastSnapshotID,
+			Cause:               ErrIntegrity,
+		}
+	}
+	return out, nil, nil
+}
 func validateCommitRecord(r commitRecord, caseID string) error {
 	if r.SchemaName != schemaCommitRecord || r.SchemaVersion != schemaVersion {
 		return fmt.Errorf("invalid commit schema")

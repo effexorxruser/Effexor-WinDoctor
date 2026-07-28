@@ -40,8 +40,8 @@ func Open(root string, options Options) (*Store, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%w: root %q is not a directory", ErrInvalidArgument, root)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%w: root must not be a symlink", ErrPathUnsafe)
+	if err := ensureNotSymlink(abs); err != nil {
+		return nil, err
 	}
 	casesDir := filepath.Join(abs, "cases")
 	if err := os.MkdirAll(casesDir, dirPerm); err != nil {

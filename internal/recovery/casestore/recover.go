@@ -20,11 +20,13 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		CaseID:                    caseID,
 		InspectedAt:               formatTime(s.clock.Now()),
 		ValidCommittedSnapshots:   []string{},
+		ValidCommitIDs:            []string{},
 		StagingTransactions:       []string{},
 		TemporaryCommitFiles:      []string{},
 		PublishedUncommitted:      []string{},
 		UnreferencedArtifactBlobs: []string{},
 		MalformedFinalCommits:     []string{},
+		BrokenCommitTail:          []string{},
 		MissingManifests:          []string{},
 		HashMismatches:            []string{},
 		Warnings:                  []string{},
@@ -36,17 +38,21 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		return ins, nil
 	}
 
-	chain, err := s.loadCommitChain(caseID)
+	chain, brokenTail, err := s.loadCommitChainPrefix(caseID)
 	if err != nil {
 		ins.BrokenCommitChain = true
+		ins.BrokenCommitTail = append(ins.BrokenCommitTail, brokenTail...)
 		ins.Warnings = append(ins.Warnings, err.Error())
-		// Still continue to classify filesystem objects.
+		// Still continue to classify filesystem objects using the valid prefix.
+	} else if len(brokenTail) > 0 {
+		ins.BrokenCommitTail = append(ins.BrokenCommitTail, brokenTail...)
 	}
 
-	// Committed IDs come from the chain regardless of snapshot load success.
+	// Committed IDs come from the valid prefix only.
 	committed := map[string]struct{}{}
 	for _, c := range chain {
 		committed[c.SnapshotID] = struct{}{}
+		ins.ValidCommitIDs = append(ins.ValidCommitIDs, c.CommitID)
 		if _, err := s.loadSnapshotAtCommit(caseID, c); err != nil {
 			ins.HashMismatches = append(ins.HashMismatches, c.SnapshotID+": "+err.Error())
 			continue

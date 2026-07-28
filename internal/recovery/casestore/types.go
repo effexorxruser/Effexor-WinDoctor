@@ -80,6 +80,8 @@ type IntegrityReport struct {
 	OrphanSnapshots   []string        `json:"orphan_snapshots"`
 	OrphanArtifacts   []string        `json:"orphan_artifacts"`
 	TemporaryFiles    []string        `json:"temporary_files"`
+	ValidCommitIDs    []string        `json:"valid_commit_ids,omitempty"`
+	BrokenCommitTail  []string        `json:"broken_commit_tail,omitempty"`
 	Warnings          []string        `json:"warnings"`
 	Errors            []string        `json:"errors"`
 	Status            IntegrityStatus `json:"status"`
@@ -90,11 +92,13 @@ type RecoveryInspection struct {
 	CaseID                    string   `json:"case_id"`
 	InspectedAt               string   `json:"inspected_at"`
 	ValidCommittedSnapshots   []string `json:"valid_committed_snapshots"`
+	ValidCommitIDs            []string `json:"valid_commit_ids,omitempty"`
 	StagingTransactions       []string `json:"staging_transactions"`
 	TemporaryCommitFiles      []string `json:"temporary_commit_files"`
 	PublishedUncommitted      []string `json:"published_uncommitted_snapshots"`
 	UnreferencedArtifactBlobs []string `json:"unreferenced_artifact_blobs"`
 	MalformedFinalCommits     []string `json:"malformed_final_commits"`
+	BrokenCommitTail          []string `json:"broken_commit_tail,omitempty"`
 	BrokenCommitChain         bool     `json:"broken_commit_chain"`
 	MissingManifests          []string `json:"missing_manifests"`
 	HashMismatches            []string `json:"hash_mismatches"`

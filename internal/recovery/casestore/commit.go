@@ -179,16 +179,16 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		return CommitInfo{}, err
 	}
 	if _, err := os.Lstat(finalSnapDir); err == nil {
-		// Snapshot already published (orphan from prior crash). Reuse it after verifying manifest hash.
+		// Snapshot already published (orphan from prior crash). Fully verify before reuse.
 		if err := ensureNotSymlink(finalSnapDir); err != nil {
 			return CommitInfo{}, err
 		}
-		existing, err := os.ReadFile(filepath.Join(finalSnapDir, "snapshot-manifest.json"))
-		if err != nil {
-			return CommitInfo{}, err
-		}
-		if sha256Hex(existing) != sha256Hex(manifestBytes) {
-			return CommitInfo{}, fmt.Errorf("%w: published snapshot %s has divergent manifest", ErrIntegrity, manifest.SnapshotID)
+		if err := s.verifyPublishedSnapshot(caseID, manifest.SnapshotID, sha256Hex(manifestBytes)); err != nil {
+			return CommitInfo{}, &IntegrityError{
+				CaseID:  caseID,
+				Message: fmt.Sprintf("published orphan snapshot %s failed verification; refusing commit reuse", manifest.SnapshotID),
+				Cause:   err,
+			}
 		}
 		_ = os.RemoveAll(stagingRoot)
 	} else if os.IsNotExist(err) {
@@ -277,20 +277,38 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	}, nil
 }
 
+// verifyPublishedSnapshot fully verifies an already-published snapshot directory
+// using the same path as loadSnapshotAtCommit (manifest provenance, documents,
+// domain decode, Validate, artifact refs, and blobs).
+func (s *Store) verifyPublishedSnapshot(caseID, snapshotID, expectedManifestSHA string) error {
+	_, err := s.loadSnapshotAtCommit(caseID, commitRecord{
+		CaseID:                 caseID,
+		SnapshotID:             snapshotID,
+		SnapshotManifestSHA256: expectedManifestSHA,
+	})
+	return err
+}
+
 // verifyCommittedHistory fully loads every committed snapshot. Corruption blocks
-// both idempotent retries and new appends.
+// both idempotent retries and new appends. LastValid* tracks the last successfully
+// verified commit (empty/zero when the first commit fails).
 func (s *Store) verifyCommittedHistory(caseID string, chain []commitRecord) error {
+	var lastSeq uint64
+	var lastCommitID, lastSnapshotID string
 	for _, c := range chain {
 		if _, err := s.loadSnapshotAtCommit(caseID, c); err != nil {
 			return &IntegrityError{
 				CaseID:              caseID,
 				Message:             "committed history is corrupt; refusing commit",
-				LastValidSequence:   c.Sequence,
-				LastValidCommitID:   c.CommitID,
-				LastValidSnapshotID: c.SnapshotID,
+				LastValidSequence:   lastSeq,
+				LastValidCommitID:   lastCommitID,
+				LastValidSnapshotID: lastSnapshotID,
 				Cause:               err,
 			}
 		}
+		lastSeq = c.Sequence
+		lastCommitID = c.CommitID
+		lastSnapshotID = c.SnapshotID
 	}
 	return nil
 }
@@ -308,9 +326,9 @@ func (s *Store) ingestArtifact(ctx context.Context, caseID string, ref domain.Ar
 		return err
 	}
 
-	if info, err := os.Lstat(dest); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%w: artifact blob is a symlink", ErrPathUnsafe)
+	if _, err := os.Lstat(dest); err == nil {
+		if err := ensureNotSymlink(dest); err != nil {
+			return err
 		}
 		ok, verr := verifyBlobFile(dest, sha, ref.SizeBytes)
 		if verr != nil {
