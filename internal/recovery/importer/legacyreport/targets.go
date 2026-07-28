@@ -62,7 +62,7 @@ func buildTargetsAndEvidence(ctx *importContext) ([]domain.Target, []domain.Evid
 		switch ent.entityKind {
 		case "disk":
 			if n, ok := parseLocatorInt(ent.locators, "disk_number"); ok {
-				ctx.diskByNumber[n] = targetID
+				ctx.diskByNumber[n] = append(ctx.diskByNumber[n], targetID)
 			}
 		case "partition":
 			if n, ok := parseLocatorInt(ent.locators, "disk_number"); ok {
@@ -175,16 +175,17 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 		if strings.TrimSpace(name) == "" {
 			name = fmt.Sprintf("Disk %d", item.disk.Number)
 		}
+		locators := map[string]string{}
+		lims := []string{}
+		putLocator(locators, &lims, path, "disk_number", strconv.Itoa(item.disk.Number))
 		out = append(out, orderedEntity{
 			sourcePath:  path,
 			targetType:  "disk",
 			displayName: name,
 			entityKind:  "disk",
 			payload:     item.disk,
-			locators: map[string]string{
-				"disk_number": strconv.Itoa(item.disk.Number),
-			},
-			limitations: []string{},
+			locators:    locators,
+			limitations: lims,
 			sourceIndex: item.index,
 			sortKey:     fmt.Sprintf("1-disk-%010d-%010d", item.disk.Number, item.index),
 		})
@@ -209,13 +210,11 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 	})
 	for _, item := range parts {
 		path := fmt.Sprintf("storage.partitions[%d]", item.index)
-		locators := map[string]string{
-			"disk_number":      strconv.Itoa(item.part.DiskNumber),
-			"partition_number": strconv.Itoa(item.part.PartitionNumber),
-		}
-		if letter, ok := normalizeDriveLetterLocator(item.part.DriveLetter); ok {
-			locators["drive_letter"] = letter
-		}
+		locators := map[string]string{}
+		lims := []string{}
+		putLocator(locators, &lims, path, "disk_number", strconv.Itoa(item.part.DiskNumber))
+		putLocator(locators, &lims, path, "partition_number", strconv.Itoa(item.part.PartitionNumber))
+		putDriveLetterLocator(locators, &lims, path, "drive_letter", item.part.DriveLetter)
 		out = append(out, orderedEntity{
 			sourcePath:  path,
 			targetType:  "partition",
@@ -223,7 +222,7 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 			entityKind:  "partition",
 			payload:     item.part,
 			locators:    locators,
-			limitations: []string{},
+			limitations: lims,
 			sourceIndex: item.index,
 			sortKey:     fmt.Sprintf("2-part-%010d-%010d-%010d", item.part.DiskNumber, item.part.PartitionNumber, item.index),
 		})
@@ -247,18 +246,23 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 	})
 	for _, item := range installs {
 		path := fmt.Sprintf("windows_installations[%d]", item.index)
+		locators := map[string]string{}
+		lims := []string{}
+		putLocator(locators, &lims, path, "root", item.inst.Root)
+		putLocator(locators, &lims, path, "system_hive", item.inst.SystemHive)
+		putLocator(locators, &lims, path, "software_hive", item.inst.SoftwareHive)
+		displayRoot := item.inst.Root
+		if displayRoot == "" {
+			displayRoot = path
+		}
 		out = append(out, orderedEntity{
 			sourcePath:  path,
 			targetType:  "windows_installation",
-			displayName: fmt.Sprintf("Windows installation %s", item.inst.Root),
+			displayName: fmt.Sprintf("Windows installation %s", displayRoot),
 			entityKind:  "windows_installation",
 			payload:     item.inst,
-			locators: map[string]string{
-				"root":          item.inst.Root,
-				"system_hive":   item.inst.SystemHive,
-				"software_hive": item.inst.SoftwareHive,
-			},
-			limitations: []string{},
+			locators:    locators,
+			limitations: lims,
 			sourceIndex: item.index,
 			sortKey:     fmt.Sprintf("3-win-%s-%010d", normalizePathKey(item.inst.Root), item.index),
 		})
@@ -283,17 +287,18 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 	})
 	for _, item := range stores {
 		path := fmt.Sprintf("boot.bcd_stores[%d]", item.index)
+		locators := map[string]string{}
+		lims := []string{}
+		putLocator(locators, &lims, path, "path", item.store.Path)
+		putLocator(locators, &lims, path, "kind", item.store.Kind)
 		out = append(out, orderedEntity{
 			sourcePath:  path,
 			targetType:  "boot_store",
 			displayName: fmt.Sprintf("BCD store (%s)", item.store.Kind),
 			entityKind:  "boot_store",
 			payload:     item.store,
-			locators: map[string]string{
-				"path": item.store.Path,
-				"kind": item.store.Kind,
-			},
-			limitations: []string{},
+			locators:    locators,
+			limitations: lims,
 			sourceIndex: item.index,
 			sortKey:     fmt.Sprintf("4-bcd-%s-%s-%010d", item.store.Kind, normalizePathKey(item.store.Path), item.index),
 		})
@@ -317,16 +322,17 @@ func collectOrderedEntities(ctx *importContext) ([]orderedEntity, error) {
 		})
 		for _, item := range vols {
 			path := fmt.Sprintf("storage.bitlocker_volumes[%d]", item.index)
+			locators := map[string]string{}
+			lims := []string{}
+			putLocator(locators, &lims, path, "mount_point", item.vol.MountPoint)
 			out = append(out, orderedEntity{
 				sourcePath:  path,
 				targetType:  "volume",
 				displayName: fmt.Sprintf("BitLocker volume %s", item.vol.MountPoint),
 				entityKind:  "bitlocker_volume",
 				payload:     item.vol,
-				locators: map[string]string{
-					"mount_point": item.vol.MountPoint,
-				},
-				limitations: []string{},
+				locators:    locators,
+				limitations: lims,
 				sourceIndex: item.index,
 				sortKey:     fmt.Sprintf("5-bl-%s-%010d", normalizePathKey(item.vol.MountPoint), item.index),
 			})
@@ -349,6 +355,24 @@ func sourceStatusFor(entityKind, bitLockerInventoryStatus string) string {
 		}
 	}
 	return "ok"
+}
+
+// putLocator adds a runtime locator only when the value is usable.
+// Empty, NUL, and whitespace-only values are omitted with a limitation.
+func putLocator(dst map[string]string, lims *[]string, sourcePath, key, value string) {
+	if isUsableLocator(value) {
+		dst[key] = value
+		return
+	}
+	*lims = appendUnique(*lims, fmt.Sprintf("%s runtime locator %q omitted: empty, NUL, or whitespace", sourcePath, key))
+}
+
+func putDriveLetterLocator(dst map[string]string, lims *[]string, sourcePath, key, value string) {
+	if letter, ok := normalizeDriveLetterLocator(value); ok {
+		dst[key] = letter
+		return
+	}
+	*lims = appendUnique(*lims, fmt.Sprintf("%s runtime locator %q omitted: empty, NUL, whitespace, or invalid drive letter", sourcePath, key))
 }
 
 func normalizeDriveLetterLocator(raw string) (string, bool) {

@@ -2,6 +2,8 @@ package legacyreport_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -452,16 +454,18 @@ func TestSHA256PresentInFacts(t *testing.T) {
 
 func TestSourceArtifactPropagated(t *testing.T) {
 	t.Parallel()
+	raw := testdata(t, "report-uefi-bitlocker-unavailable.json")
+	sum := sha256.Sum256(raw)
 	artifact := domain.ArtifactRef{
 		ArtifactID:          "artifact-aaaaaaaaaaaaaaaaaaaaaaaa",
 		Kind:                "report",
 		RelativePath:        "imports/report.json",
-		SHA256:              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		SizeBytes:           12,
+		SHA256:              hex.EncodeToString(sum[:]),
+		SizeBytes:           int64(len(raw)),
 		CreatedAt:           "2026-07-27T14:00:00Z",
 		MediaClassification: "case_local",
 	}
-	result, err := legacyreport.ImportJSON(testdata(t, "report-uefi-bitlocker-unavailable.json"), legacyreport.Options{
+	result, err := legacyreport.ImportJSON(raw, legacyreport.Options{
 		SourceArtifact: &artifact,
 	})
 	if err != nil {

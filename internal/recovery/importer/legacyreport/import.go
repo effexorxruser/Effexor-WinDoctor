@@ -52,15 +52,15 @@ type importContext struct {
 	warnings          []string
 	partitionByDisk   map[int][]string // disk_number -> partition target IDs
 	partitionByLetter map[string][]string
-	diskByNumber      map[int]string
+	diskByNumber      map[int][]string // disk_number -> disk target IDs (may be ambiguous)
 }
 
 // ImportJSON converts diagnostic-report 1.3.0 JSON into recovery domain documents.
 func ImportJSON(raw []byte, options Options) (Result, error) {
-	if err := validateOptions(options); err != nil {
+	if err := requireSchemaVersion130(raw); err != nil {
 		return Result{}, err
 	}
-	if err := requireSchemaVersion130(raw); err != nil {
+	if err := validateOptions(options, raw); err != nil {
 		return Result{}, err
 	}
 	report, err := diagnostics.DecodeReportJSON(raw)
@@ -85,7 +85,7 @@ func ImportJSON(raw []byte, options Options) (Result, error) {
 		capturedAt:        capturedAt,
 		partitionByDisk:   map[int][]string{},
 		partitionByLetter: map[string][]string{},
-		diskByNumber:      map[int]string{},
+		diskByNumber:      map[int][]string{},
 	}
 	if options.SourceArtifact != nil {
 		ctx.artifacts = []domain.ArtifactRef{*options.SourceArtifact}
@@ -125,12 +125,19 @@ func ImportJSON(raw []byte, options Options) (Result, error) {
 	return result, nil
 }
 
-func validateOptions(options Options) error {
+func validateOptions(options Options, raw []byte) error {
 	if options.SourceArtifact == nil {
 		return nil
 	}
 	if err := options.SourceArtifact.Validate(); err != nil {
 		return fmt.Errorf("SourceArtifact: %w", err)
+	}
+	wantHash := sha256Hex(raw)
+	if !strings.EqualFold(options.SourceArtifact.SHA256, wantHash) {
+		return fmt.Errorf("SourceArtifact.sha256 does not match SHA-256 of raw input")
+	}
+	if options.SourceArtifact.SizeBytes != int64(len(raw)) {
+		return fmt.Errorf("SourceArtifact.size_bytes does not match len(raw)")
 	}
 	return nil
 }

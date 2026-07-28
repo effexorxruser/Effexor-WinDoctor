@@ -10,10 +10,16 @@ func relatedTargetIDs(ctx *importContext, ent orderedEntity) (related []string, 
 	switch ent.entityKind {
 	case "partition":
 		if diskNum, ok := parseLocatorInt(ent.locators, "disk_number"); ok {
-			if diskID, ok := ctx.diskByNumber[diskNum]; ok {
-				related = append(related, diskID)
-			} else {
+			matches := ctx.diskByNumber[diskNum]
+			switch len(matches) {
+			case 1:
+				related = append(related, matches[0])
+			case 0:
 				msg := fmt.Sprintf("partition %s has disk_number %d with no matching disk target", ent.sourcePath, diskNum)
+				warnings = append(warnings, msg)
+				limitations = append(limitations, msg)
+			default:
+				msg := fmt.Sprintf("partition %s disk_number %d matches %d disk targets; relation omitted", ent.sourcePath, diskNum, len(matches))
 				warnings = append(warnings, msg)
 				limitations = append(limitations, msg)
 			}
@@ -63,6 +69,5 @@ func driveLetterFromPath(path string) (string, bool) {
 	if len(trimmed) >= 2 && trimmed[1] == ':' {
 		return normalizeDriveLetterLocator(string(trimmed[0]))
 	}
-	// Bare letter forms such as "C".
 	return normalizeDriveLetterLocator(trimmed)
 }

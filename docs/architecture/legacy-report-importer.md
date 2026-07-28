@@ -81,6 +81,17 @@ Invalid / omitted locators:
 - whitespace-only
 
 Valid single drive letters may appear on partitions as `drive_letter`.
+The same empty/NUL/whitespace policy applies to Windows
+`root` / `system_hive` / `software_hive`, BCD `path` / `kind`, and BitLocker
+`mount_point`. Discarded values produce an explicit limitation.
+
+## SourceArtifact binding
+
+When `Options.SourceArtifact` is provided it must:
+
+- pass `ArtifactRef.Validate()`
+- have `sha256` equal to SHA-256 of the raw input bytes
+- have `size_bytes` equal to `len(raw)`
 
 ## Source status semantics
 
@@ -101,7 +112,8 @@ Valid single drive letters may appear on partitions as `drive_letter`.
 
 Reliable:
 
-- partition → disk via `disk_number`
+- partition → disk via `disk_number` **only when exactly one disk target**
+  shares that number (duplicate disk numbers omit the relation with a warning)
 
 Runtime-only (only when exactly one partition matches the letter):
 
@@ -133,7 +145,9 @@ Facts use:
 `contracts/recovery/facts/legacy-diagnostic-report-fragment-1.0.0/`
 
 Each EvidenceBundle carries one fragment for its Target (not the entire report
-duplicated).
+duplicated). Production `Result.Validate()` and `factsEnvelope.Validate()` are
+pure Go checks and do not read the schema file from disk. JSON Schema
+compilation remains a test-only concern.
 
 ## Next Case Store iteration
 
