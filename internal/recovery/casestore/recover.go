@@ -30,6 +30,12 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		Warnings:                  []string{},
 	}
 
+	if err := s.ensureCaseTreeSafe(caseID); err != nil {
+		ins.BrokenCommitChain = true
+		ins.Warnings = append(ins.Warnings, err.Error())
+		return ins, nil
+	}
+
 	chain, err := s.loadCommitChain(caseID)
 	if err != nil {
 		ins.BrokenCommitChain = true
@@ -37,17 +43,20 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		// Still continue to classify filesystem objects.
 	}
 
+	// Committed IDs come from the chain regardless of snapshot load success.
 	committed := map[string]struct{}{}
 	for _, c := range chain {
+		committed[c.SnapshotID] = struct{}{}
 		if _, err := s.loadSnapshotAtCommit(caseID, c); err != nil {
 			ins.HashMismatches = append(ins.HashMismatches, c.SnapshotID+": "+err.Error())
 			continue
 		}
 		ins.ValidCommittedSnapshots = append(ins.ValidCommittedSnapshots, c.SnapshotID)
-		committed[c.SnapshotID] = struct{}{}
 	}
 
-	if entries, err := os.ReadDir(s.snapshotsDir(caseID)); err == nil {
+	if entries, err := os.ReadDir(s.snapshotsDir(caseID)); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read snapshots: "+err.Error())
+	} else if err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
@@ -64,13 +73,17 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		}
 	}
 
-	if entries, err := os.ReadDir(s.stagingDir(caseID)); err == nil {
+	if entries, err := os.ReadDir(s.stagingDir(caseID)); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read staging: "+err.Error())
+	} else if err == nil {
 		for _, e := range entries {
 			ins.StagingTransactions = append(ins.StagingTransactions, e.Name())
 		}
 	}
 
-	if entries, err := os.ReadDir(s.commitsDir(caseID)); err == nil {
+	if entries, err := os.ReadDir(s.commitsDir(caseID)); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read commits: "+err.Error())
+	} else if err == nil {
 		for _, e := range entries {
 			name := e.Name()
 			if isTempStoreName(name) {
@@ -98,8 +111,11 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 	}
 
 	refs := s.listReferencedBlobs(caseID, chain)
-	_ = filepath.Walk(s.artifactsDir(caseID), func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	if err := filepath.Walk(s.artifactsDir(caseID), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		if isTempStoreName(info.Name()) {
@@ -112,7 +128,9 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 			ins.UnreferencedArtifactBlobs = append(ins.UnreferencedArtifactBlobs, trimCaseRel(s.caseDir(caseID), path))
 		}
 		return nil
-	})
+	}); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "walk artifacts: "+err.Error())
+	}
 
 	return ins, nil
 }
@@ -125,6 +143,9 @@ func (s *Store) CleanupStaging(ctx context.Context, caseID string) (CleanupRepor
 		return CleanupReport{}, err
 	}
 	if err := validateCaseID(caseID); err != nil {
+		return CleanupReport{}, err
+	}
+	if err := s.ensureCaseTreeSafe(caseID); err != nil {
 		return CleanupReport{}, err
 	}
 

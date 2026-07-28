@@ -1,17 +1,15 @@
 package casestore
 
-var (
-	failureCheckpoint string
-	failureHook       func(string) error
-)
-
-func maybeFail(checkpoint string) error {
-	if failureHook != nil {
-		if err := failureHook(checkpoint); err != nil {
+func (s *Store) maybeFail(checkpoint string) error {
+	if s == nil {
+		return nil
+	}
+	if s.failureHook != nil {
+		if err := s.failureHook(checkpoint); err != nil {
 			return err
 		}
 	}
-	if failureCheckpoint != "" && failureCheckpoint == checkpoint {
+	if s.failureCheckpoint != "" && s.failureCheckpoint == checkpoint {
 		return &injectedFailureError{checkpoint: checkpoint}
 	}
 	return nil
@@ -26,17 +24,17 @@ func (e *injectedFailureError) Error() string {
 }
 
 // testOnlySetFailureCheckpoint configures crash injection for package tests.
-func testOnlySetFailureCheckpoint(checkpoint string) {
-	failureCheckpoint = checkpoint
+func (s *Store) testOnlySetFailureCheckpoint(checkpoint string) {
+	s.failureCheckpoint = checkpoint
 }
 
 // testOnlySetFailureHook configures a custom failure hook for package tests.
-func testOnlySetFailureHook(hook func(string) error) {
-	failureHook = hook
+func (s *Store) testOnlySetFailureHook(hook func(string) error) {
+	s.failureHook = hook
 }
 
 // testOnlyClearFailureHooks resets injection state.
-func testOnlyClearFailureHooks() {
-	failureCheckpoint = ""
-	failureHook = nil
+func (s *Store) testOnlyClearFailureHooks() {
+	s.failureCheckpoint = ""
+	s.failureHook = nil
 }

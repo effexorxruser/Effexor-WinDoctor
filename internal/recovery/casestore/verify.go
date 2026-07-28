@@ -28,6 +28,12 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 		Status:          IntegrityOK,
 	}
 
+	if err := s.ensureCaseTreeSafe(caseID); err != nil {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, err.Error())
+		return report, nil
+	}
+
 	if _, err := os.Stat(s.caseDir(caseID)); os.IsNotExist(err) {
 		report.Status = IntegrityCorrupt
 		report.Errors = append(report.Errors, "case directory missing")
@@ -45,6 +51,7 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 		report.LatestCommit = chain[len(chain)-1].CommitID
 	}
 
+	// Committed snapshot IDs come from the chain regardless of load success.
 	committedSnaps := map[string]struct{}{}
 	referencedBlobs := map[string]struct{}{}
 	for _, c := range chain {
@@ -70,7 +77,11 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	snapRoot := s.snapshotsDir(caseID)
-	if entries, err := os.ReadDir(snapRoot); err == nil {
+	entries, err := os.ReadDir(snapRoot)
+	if err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read snapshots: "+err.Error())
+	} else if err == nil {
 		report.SnapshotCount = len(entries)
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -84,8 +95,11 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	artRoot := s.artifactsDir(caseID)
-	_ = filepath.Walk(artRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	walkErr := filepath.Walk(artRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		name := info.Name()
@@ -105,9 +119,16 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 		}
 		return nil
 	})
+	if walkErr != nil && !os.IsNotExist(walkErr) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "walk artifacts: "+walkErr.Error())
+	}
 
 	stageRoot := s.stagingDir(caseID)
-	if entries, err := os.ReadDir(stageRoot); err == nil {
+	if entries, err := os.ReadDir(stageRoot); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read staging: "+err.Error())
+	} else if err == nil {
 		for _, e := range entries {
 			report.StagingEntries = append(report.StagingEntries, e.Name())
 			report.Status = degrade(report.Status)
@@ -115,7 +136,10 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	commitsDir := s.commitsDir(caseID)
-	if entries, err := os.ReadDir(commitsDir); err == nil {
+	if entries, err := os.ReadDir(commitsDir); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read commits: "+err.Error())
+	} else if err == nil {
 		for _, e := range entries {
 			if isTempStoreName(e.Name()) {
 				report.TemporaryFiles = append(report.TemporaryFiles, "commits/"+e.Name())

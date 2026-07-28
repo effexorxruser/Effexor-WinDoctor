@@ -15,10 +15,11 @@ func TestCaseLockBlocksConcurrentWriters(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	var holdErr error
+	done := make(chan struct{})
 
 	go func() {
-		holdErr = st.withCaseLock(caseID, func() error {
+		defer close(done)
+		_ = st.withCaseLock(caseID, func() error {
 			close(started)
 			<-release
 			return nil
@@ -29,22 +30,17 @@ func TestCaseLockBlocksConcurrentWriters(t *testing.T) {
 	err := st.withCaseLock(caseID, func() error { return nil })
 	if !errors.Is(err, ErrCaseLocked) {
 		close(release)
+		<-done
 		t.Fatalf("want ErrCaseLocked, got %v", err)
 	}
 	close(release)
-	// Wait for holder to finish.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if holdErr == nil {
-			// may still be running; try acquire
-			if err := st.withCaseLock(caseID, func() error { return nil }); err == nil {
-				return
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder did not release lock")
 	}
 	if err := st.withCaseLock(caseID, func() error { return nil }); err != nil {
-		t.Fatalf("lock not released: %v (holdErr=%v)", err, holdErr)
+		t.Fatalf("lock not released: %v", err)
 	}
 }
 
@@ -58,7 +54,8 @@ func TestConcurrentCommitsNoSequenceCollision(t *testing.T) {
 	infos := make(chan CommitInfo, 2)
 	run := func(snap Snapshot) {
 		defer wg.Done()
-		for i := 0; i < 20; i++ {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
 			info, err := st.Commit(context.Background(), CommitRequest{
 				Snapshot: snap,
 				Reason:   CommitReasonCaseSnapshot,
@@ -111,12 +108,12 @@ func TestConcurrentCommitsNoSequenceCollision(t *testing.T) {
 }
 
 func TestContextCancellationReleasesLock(t *testing.T) {
-	defer testOnlyClearFailureHooks()
 	st := openTestStore(t)
+	defer st.testOnlyClearFailureHooks()
 	snap := baseSnapshot(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	testOnlySetFailureHook(func(checkpoint string) error {
+	st.testOnlySetFailureHook(func(checkpoint string) error {
 		if checkpoint == "after_documents_written" {
 			cancel()
 			return context.Canceled
@@ -130,7 +127,7 @@ func TestContextCancellationReleasesLock(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cancellation")
 	}
-	testOnlyClearFailureHooks()
+	st.testOnlyClearFailureHooks()
 
 	// Lock must be free for a subsequent commit.
 	info, err := st.Commit(context.Background(), CommitRequest{
@@ -146,10 +143,10 @@ func TestContextCancellationReleasesLock(t *testing.T) {
 }
 
 func TestHandlesClosedAfterFailure(t *testing.T) {
-	defer testOnlyClearFailureHooks()
 	st := openTestStore(t)
+	defer st.testOnlyClearFailureHooks()
 	snap := baseSnapshot(t)
-	testOnlySetFailureCheckpoint("after_staging_created")
+	st.testOnlySetFailureCheckpoint("after_staging_created")
 	_, err := st.Commit(context.Background(), CommitRequest{
 		Snapshot: snap,
 		Reason:   CommitReasonCaseSnapshot,
@@ -157,7 +154,7 @@ func TestHandlesClosedAfterFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected failure")
 	}
-	testOnlyClearFailureHooks()
+	st.testOnlyClearFailureHooks()
 	if err := st.withCaseLock(snap.Case.CaseID, func() error { return nil }); err != nil {
 		t.Fatalf("lock held after failure: %v", err)
 	}

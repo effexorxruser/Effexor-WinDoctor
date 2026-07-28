@@ -2,11 +2,15 @@ package casestore
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 )
@@ -21,7 +25,7 @@ func (s *Store) LoadLatest(ctx context.Context, caseID string) (Snapshot, Commit
 	if err := validateCaseID(caseID); err != nil {
 		return Snapshot{}, CommitInfo{}, err
 	}
-	if err := ensureDirNotSymlink(s.caseDir(caseID)); err != nil {
+	if err := s.ensureCaseTreeSafe(caseID); err != nil {
 		return Snapshot{}, CommitInfo{}, err
 	}
 
@@ -77,7 +81,7 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	if err := decodeStrict(raw, &manifest); err != nil {
 		return Snapshot{}, fmt.Errorf("decode snapshot manifest: %w", err)
 	}
-	if err := validateSnapshotManifest(manifest); err != nil {
+	if err := validateSnapshotManifest(manifest, caseID, head.CaseID); err != nil {
 		return Snapshot{}, err
 	}
 	if manifest.SnapshotID != head.SnapshotID {
@@ -174,6 +178,9 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	if err := snap.Validate(); err != nil {
 		return Snapshot{}, err
 	}
+	if err := compareManifestArtifacts(manifest, snap); err != nil {
+		return Snapshot{}, err
+	}
 
 	for _, a := range manifest.Artifacts {
 		blob := s.blobAbsPath(caseID, a.SHA256)
@@ -191,18 +198,165 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	return snap, nil
 }
 
-func validateSnapshotManifest(m snapshotManifest) error {
+func validateSnapshotManifest(m snapshotManifest, caseID, commitCaseID string) error {
 	if m.SchemaName != schemaSnapshotManifest || m.SchemaVersion != schemaVersion {
 		return fmt.Errorf("%w: invalid snapshot manifest schema", ErrIntegrity)
 	}
+	if m.Documents == nil {
+		return fmt.Errorf("%w: snapshot manifest documents must be an array", ErrIntegrity)
+	}
+	if m.Artifacts == nil {
+		return fmt.Errorf("%w: snapshot manifest artifacts must be an array", ErrIntegrity)
+	}
 	if err := validateCaseID(m.CaseID); err != nil {
 		return err
+	}
+	if m.CaseID != caseID {
+		return fmt.Errorf("%w: manifest case_id %q does not match requested %q", ErrIntegrity, m.CaseID, caseID)
+	}
+	if m.CaseID != commitCaseID {
+		return fmt.Errorf("%w: manifest case_id %q does not match commit case_id %q", ErrIntegrity, m.CaseID, commitCaseID)
 	}
 	if err := validateSnapshotID(m.SnapshotID); err != nil {
 		return err
 	}
 	if err := validateSHA256Hex(m.ContentSHA256); err != nil {
 		return err
+	}
+	if _, err := time.Parse(time.RFC3339, m.CreatedAt); err != nil {
+		return fmt.Errorf("%w: invalid created_at %q", ErrIntegrity, m.CreatedAt)
+	}
+
+	seenDocs := make(map[string]struct{}, len(m.Documents))
+	for i, d := range m.Documents {
+		if err := rejectTraversal(d.RelativePath); err != nil {
+			return fmt.Errorf("%w: documents[%d].relative_path: %v", ErrIntegrity, i, err)
+		}
+		if _, ok := seenDocs[d.RelativePath]; ok {
+			return fmt.Errorf("%w: duplicate document relative_path %q", ErrIntegrity, d.RelativePath)
+		}
+		seenDocs[d.RelativePath] = struct{}{}
+		if err := validateSHA256Hex(d.SHA256); err != nil {
+			return fmt.Errorf("%w: documents[%d]: %v", ErrIntegrity, i, err)
+		}
+		if d.SizeBytes < 0 {
+			return fmt.Errorf("%w: documents[%d] negative size", ErrIntegrity, i)
+		}
+		if d.MediaType != mediaTypeJSON {
+			return fmt.Errorf("%w: documents[%d] media_type must be %q", ErrIntegrity, i, mediaTypeJSON)
+		}
+	}
+
+	seenArts := make(map[string]struct{}, len(m.Artifacts))
+	for i, a := range m.Artifacts {
+		if err := validateArtifactID(a.ArtifactID); err != nil {
+			return fmt.Errorf("%w: artifacts[%d]: %v", ErrIntegrity, i, err)
+		}
+		if _, ok := seenArts[a.ArtifactID]; ok {
+			return fmt.Errorf("%w: duplicate artifact_id %q", ErrIntegrity, a.ArtifactID)
+		}
+		seenArts[a.ArtifactID] = struct{}{}
+		if err := validateSHA256Hex(a.SHA256); err != nil {
+			return fmt.Errorf("%w: artifacts[%d]: %v", ErrIntegrity, i, err)
+		}
+		if a.SizeBytes < 0 {
+			return fmt.Errorf("%w: artifacts[%d] negative size", ErrIntegrity, i)
+		}
+		if err := rejectTraversal(a.BlobRelativePath); err != nil {
+			return fmt.Errorf("%w: artifacts[%d].blob_relative_path: %v", ErrIntegrity, i, err)
+		}
+		wantBlob := blobRelativePath(a.SHA256)
+		if a.BlobRelativePath != wantBlob {
+			return fmt.Errorf("%w: artifacts[%d] blob_relative_path want %q got %q", ErrIntegrity, i, wantBlob, a.BlobRelativePath)
+		}
+		if a.Kind == "" {
+			return fmt.Errorf("%w: artifacts[%d] kind required", ErrIntegrity, i)
+		}
+		if a.MediaClassification == "" {
+			return fmt.Errorf("%w: artifacts[%d] media_classification required", ErrIntegrity, i)
+		}
+	}
+
+	contentSHA, snapshotID, err := recomputeSnapshotProvenance(m)
+	if err != nil {
+		return err
+	}
+	if contentSHA != m.ContentSHA256 {
+		return fmt.Errorf("%w: content_sha256 mismatch", ErrIntegrity)
+	}
+	if snapshotID != m.SnapshotID {
+		return fmt.Errorf("%w: snapshot_id mismatch with recomputed provenance", ErrIntegrity)
+	}
+	return nil
+}
+
+func recomputeSnapshotProvenance(m snapshotManifest) (contentSHA, snapshotID string, err error) {
+	docEntries := append([]snapshotDocumentEntry(nil), m.Documents...)
+	if docEntries == nil {
+		docEntries = []snapshotDocumentEntry{}
+	}
+	sort.Slice(docEntries, func(i, j int) bool { return docEntries[i].RelativePath < docEntries[j].RelativePath })
+	artsCopy := append([]snapshotArtifactEntry(nil), m.Artifacts...)
+	if artsCopy == nil {
+		artsCopy = []snapshotArtifactEntry{}
+	}
+	sort.Slice(artsCopy, func(i, j int) bool { return artsCopy[i].ArtifactID < artsCopy[j].ArtifactID })
+
+	body := struct {
+		SchemaName    string                  `json:"schema_name"`
+		SchemaVersion string                  `json:"schema_version"`
+		CaseID        string                  `json:"case_id"`
+		CreatedAt     string                  `json:"created_at"`
+		Documents     []snapshotDocumentEntry `json:"documents"`
+		Artifacts     []snapshotArtifactEntry `json:"artifacts"`
+	}{
+		SchemaName:    schemaSnapshotManifest,
+		SchemaVersion: schemaVersion,
+		CaseID:        m.CaseID,
+		CreatedAt:     m.CreatedAt,
+		Documents:     docEntries,
+		Artifacts:     artsCopy,
+	}
+	canonical, err := json.Marshal(body)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256(canonical)
+	contentSHA = hex.EncodeToString(sum[:])
+	snapshotID = "snapshot-" + contentSHA[:24]
+	return contentSHA, snapshotID, nil
+}
+
+func compareManifestArtifacts(manifest snapshotManifest, snap Snapshot) error {
+	refs, err := collectArtifactRefs(snap)
+	if err != nil {
+		return err
+	}
+	if len(refs) != len(manifest.Artifacts) {
+		return fmt.Errorf("%w: manifest artifacts count %d != snapshot refs %d", ErrIntegrity, len(manifest.Artifacts), len(refs))
+	}
+	byID := make(map[string]domain.ArtifactRef, len(refs))
+	for _, r := range refs {
+		byID[r.ArtifactID] = r
+	}
+	for _, a := range manifest.Artifacts {
+		ref, ok := byID[a.ArtifactID]
+		if !ok {
+			return fmt.Errorf("%w: manifest artifact %s missing from snapshot", ErrIntegrity, a.ArtifactID)
+		}
+		sha := strings.ToLower(ref.SHA256)
+		if a.SHA256 != sha || a.SizeBytes != ref.SizeBytes || a.Kind != ref.Kind || a.MediaClassification != ref.MediaClassification {
+			return fmt.Errorf("%w: manifest artifact %s diverges from snapshot refs", ErrIntegrity, a.ArtifactID)
+		}
+		if a.BlobRelativePath != blobRelativePath(sha) {
+			return fmt.Errorf("%w: manifest artifact %s blob path mismatch", ErrIntegrity, a.ArtifactID)
+		}
+		delete(byID, a.ArtifactID)
+	}
+	if len(byID) != 0 {
+		for id := range byID {
+			return fmt.Errorf("%w: snapshot artifact %s missing from manifest", ErrIntegrity, id)
+		}
 	}
 	return nil
 }
@@ -247,7 +401,7 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 				Cause:   err,
 			}
 		}
-		if err := validateCommitRecord(rec); err != nil {
+		if err := validateCommitRecord(rec, caseID); err != nil {
 			return nil, &IntegrityError{CaseID: caseID, Message: "invalid commit " + name, Cause: err}
 		}
 		wantName := commitFileName(rec.Sequence, rec.CommitID)
@@ -303,12 +457,15 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 	return out, nil
 }
 
-func validateCommitRecord(r commitRecord) error {
+func validateCommitRecord(r commitRecord, caseID string) error {
 	if r.SchemaName != schemaCommitRecord || r.SchemaVersion != schemaVersion {
 		return fmt.Errorf("invalid commit schema")
 	}
 	if err := validateCaseID(r.CaseID); err != nil {
 		return err
+	}
+	if r.CaseID != caseID {
+		return fmt.Errorf("%w: commit case_id %q does not match requested %q", ErrIntegrity, r.CaseID, caseID)
 	}
 	if r.Sequence < 1 {
 		return fmt.Errorf("sequence must be >= 1")
@@ -327,8 +484,18 @@ func validateCommitRecord(r commitRecord) error {
 	if err := validateSHA256Hex(r.SnapshotManifestSHA256); err != nil {
 		return err
 	}
+	if _, err := time.Parse(time.RFC3339, r.CommittedAt); err != nil {
+		return fmt.Errorf("%w: invalid committed_at %q", ErrIntegrity, r.CommittedAt)
+	}
 	if r.Reason != string(CommitReasonLegacyImport) && r.Reason != string(CommitReasonCaseSnapshot) {
 		return fmt.Errorf("invalid reason %q", r.Reason)
+	}
+	wantID, err := computeCommitIDFromRecord(r)
+	if err != nil {
+		return err
+	}
+	if wantID != r.CommitID {
+		return fmt.Errorf("%w: commit_id mismatch with recomputed provenance", ErrIntegrity)
 	}
 	return nil
 }

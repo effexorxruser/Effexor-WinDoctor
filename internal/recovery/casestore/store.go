@@ -14,6 +14,9 @@ type Store struct {
 	root    string
 	clock   Clock
 	entropy io.Reader
+	// test-only; nil/empty in production
+	failureCheckpoint string
+	failureHook       func(string) error
 }
 
 type systemClock struct{}
@@ -52,7 +55,36 @@ func Open(root string, options Options) (*Store, error) {
 	if entropy == nil {
 		entropy = rand.Reader
 	}
-	return &Store{root: abs, clock: clock, entropy: entropy}, nil
+	st := &Store{root: abs, clock: clock, entropy: entropy}
+	if err := st.ensureCasesRootSafe(); err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
+func (s *Store) ensureCasesRootSafe() error {
+	return s.ensureManagedPath(s.casesRoot())
+}
+
+// ensureCaseTreeSafe verifies key managed directories for a case are under the
+// store root with no symlink/reparse ancestors.
+func (s *Store) ensureCaseTreeSafe(caseID string) error {
+	if err := validateCaseID(caseID); err != nil {
+		return err
+	}
+	paths := []string{
+		s.caseDir(caseID),
+		s.snapshotsDir(caseID),
+		s.commitsDir(caseID),
+		s.stagingDir(caseID),
+		s.artifactsDir(caseID),
+	}
+	for _, p := range paths {
+		if err := s.ensureManagedPath(p); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) ensureCaseDirs(caseID string) error {

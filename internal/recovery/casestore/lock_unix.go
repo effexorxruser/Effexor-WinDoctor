@@ -16,7 +16,7 @@ func syncDirPlatform(dir string) ([]string, error) {
 	}
 	defer f.Close()
 	if err := f.Sync(); err != nil {
-		return []string{durabilityWarning("directory sync failed: " + err.Error())}, nil
+		return nil, err
 	}
 	return nil, nil
 }

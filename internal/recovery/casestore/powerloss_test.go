@@ -20,10 +20,10 @@ func TestFailureInjectionBeforeCommitPoints(t *testing.T) {
 	for _, cp := range checkpoints {
 		cp := cp
 		t.Run(cp, func(t *testing.T) {
-			defer testOnlyClearFailureHooks()
 			st := openTestStore(t)
+			defer st.testOnlyClearFailureHooks()
 			snap := baseSnapshot(t)
-			testOnlySetFailureCheckpoint(cp)
+			st.testOnlySetFailureCheckpoint(cp)
 			_, err := st.Commit(context.Background(), CommitRequest{
 				Snapshot: snap,
 				Reason:   CommitReasonCaseSnapshot,
@@ -31,7 +31,7 @@ func TestFailureInjectionBeforeCommitPoints(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected injected failure")
 			}
-			testOnlyClearFailureHooks()
+			st.testOnlyClearFailureHooks()
 
 			_, _, loadErr := st.LoadLatest(context.Background(), snap.Case.CaseID)
 			if loadErr == nil {
@@ -67,10 +67,10 @@ func TestFailureInjectionBeforeCommitPoints(t *testing.T) {
 }
 
 func TestFailureAfterCommitPublishedIsVisibleAndIdempotent(t *testing.T) {
-	defer testOnlyClearFailureHooks()
 	st := openTestStore(t)
+	defer st.testOnlyClearFailureHooks()
 	snap := baseSnapshot(t)
-	testOnlySetFailureCheckpoint("after_commit_published")
+	st.testOnlySetFailureCheckpoint("after_commit_published")
 	_, err := st.Commit(context.Background(), CommitRequest{
 		Snapshot: snap,
 		Reason:   CommitReasonCaseSnapshot,
@@ -79,7 +79,7 @@ func TestFailureAfterCommitPublishedIsVisibleAndIdempotent(t *testing.T) {
 	if !errors.As(err, &unknown) {
 		t.Fatalf("want CommitOutcomeUnknownError, got %v", err)
 	}
-	testOnlyClearFailureHooks()
+	st.testOnlyClearFailureHooks()
 
 	loaded, info, err := st.LoadLatest(context.Background(), snap.Case.CaseID)
 	if err != nil {
@@ -99,10 +99,10 @@ func TestFailureAfterCommitPublishedIsVisibleAndIdempotent(t *testing.T) {
 }
 
 func TestFailureAfterDirectorySyncUnknownOutcome(t *testing.T) {
-	defer testOnlyClearFailureHooks()
 	st := openTestStore(t)
+	defer st.testOnlyClearFailureHooks()
 	snap := baseSnapshot(t)
-	testOnlySetFailureCheckpoint("after_commit_directory_sync")
+	st.testOnlySetFailureCheckpoint("after_commit_directory_sync")
 	_, err := st.Commit(context.Background(), CommitRequest{
 		Snapshot: snap,
 		Reason:   CommitReasonCaseSnapshot,
@@ -111,7 +111,7 @@ func TestFailureAfterDirectorySyncUnknownOutcome(t *testing.T) {
 	if !errors.As(err, &unknown) {
 		t.Fatalf("want unknown outcome, got %v", err)
 	}
-	testOnlyClearFailureHooks()
+	st.testOnlyClearFailureHooks()
 	retry := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
 	if !retry.Idempotent {
 		t.Fatalf("expected idempotent retry, got %+v", retry)

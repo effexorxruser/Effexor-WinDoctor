@@ -28,6 +28,9 @@ func (s *Store) Commit(ctx context.Context, request CommitRequest) (CommitInfo, 
 	}
 
 	caseID := request.Snapshot.Case.CaseID
+	if err := s.ensureCaseTreeSafe(caseID); err != nil {
+		return CommitInfo{}, err
+	}
 	var info CommitInfo
 	err := s.withCaseLock(caseID, func() error {
 		if err := ctx.Err(); err != nil {
@@ -56,6 +59,9 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 
 	chain, err := s.loadCommitChain(caseID)
 	if err != nil {
+		return CommitInfo{}, err
+	}
+	if err := s.verifyCommittedHistory(caseID, chain); err != nil {
 		return CommitInfo{}, err
 	}
 
@@ -111,7 +117,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	if err := os.MkdirAll(stagingRoot, dirPerm); err != nil {
 		return CommitInfo{}, err
 	}
-	if err := maybeFail("after_staging_created"); err != nil {
+	if err := s.maybeFail("after_staging_created"); err != nil {
 		return CommitInfo{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -139,7 +145,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 			return CommitInfo{}, err
 		}
 	}
-	if err := maybeFail("after_documents_written"); err != nil {
+	if err := s.maybeFail("after_documents_written"); err != nil {
 		return CommitInfo{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -151,7 +157,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 			return CommitInfo{}, err
 		}
 	}
-	if err := maybeFail("after_artifacts_written"); err != nil {
+	if err := s.maybeFail("after_artifacts_written"); err != nil {
 		return CommitInfo{}, err
 	}
 
@@ -161,7 +167,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	if err != nil {
 		return CommitInfo{}, err
 	}
-	if err := maybeFail("after_manifest_written"); err != nil {
+	if err := s.maybeFail("after_manifest_written"); err != nil {
 		return CommitInfo{}, err
 	}
 
@@ -194,10 +200,10 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	} else {
 		return CommitInfo{}, err
 	}
-	if err := maybeFail("after_snapshot_published"); err != nil {
+	if err := s.maybeFail("after_snapshot_published"); err != nil {
 		return CommitInfo{}, err
 	}
-	if err := maybeFail("before_commit_published"); err != nil {
+	if err := s.maybeFail("before_commit_published"); err != nil {
 		return CommitInfo{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -229,12 +235,12 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		return CommitInfo{}, fmt.Errorf("%w: commit file already exists: %s", ErrIntegrity, finalName)
 	}
 
-	cw, cerr := writeFileDurable(finalPath, recordBytes, s.entropy)
-	warnings = append(warnings, cw...)
-	if cerr != nil {
-		return CommitInfo{}, cerr
+	// Publish commit: exclusive temp write + rename, then directory sync with
+	// an explicit checkpoint between rename and dir sync.
+	if err := writeFileExclusiveRename(finalPath, recordBytes, s.entropy); err != nil {
+		return CommitInfo{}, err
 	}
-	if err := maybeFail("after_commit_published"); err != nil {
+	if err := s.maybeFail("after_commit_published"); err != nil {
 		return CommitInfo{}, &CommitOutcomeUnknownError{
 			CaseID:     caseID,
 			SnapshotID: manifest.SnapshotID,
@@ -244,7 +250,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 
 	dw, derr := syncDir(commitsDir)
 	warnings = append(warnings, dw...)
-	if err := maybeFail("after_commit_directory_sync"); err != nil {
+	if err := s.maybeFail("after_commit_directory_sync"); err != nil {
 		return CommitInfo{}, &CommitOutcomeUnknownError{
 			CaseID:     caseID,
 			SnapshotID: manifest.SnapshotID,
@@ -269,6 +275,24 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		Idempotent:         false,
 		DurabilityWarnings: warnings,
 	}, nil
+}
+
+// verifyCommittedHistory fully loads every committed snapshot. Corruption blocks
+// both idempotent retries and new appends.
+func (s *Store) verifyCommittedHistory(caseID string, chain []commitRecord) error {
+	for _, c := range chain {
+		if _, err := s.loadSnapshotAtCommit(caseID, c); err != nil {
+			return &IntegrityError{
+				CaseID:              caseID,
+				Message:             "committed history is corrupt; refusing commit",
+				LastValidSequence:   c.Sequence,
+				LastValidCommitID:   c.CommitID,
+				LastValidSnapshotID: c.SnapshotID,
+				Cause:               err,
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) ingestArtifact(ctx context.Context, caseID string, ref domain.ArtifactRef, provider ArtifactProvider, warnings *[]string) error {
@@ -379,6 +403,31 @@ func verifyBlobFile(path, wantSHA string, wantSize int64) (bool, error) {
 }
 
 func buildCommitRecord(caseID string, seq uint64, parent *string, snapshotID, manifestSHA, committedAt, reason string) (commitRecord, []byte, error) {
+	commitID, err := computeCommitID(caseID, seq, parent, snapshotID, manifestSHA, committedAt, reason)
+	if err != nil {
+		return commitRecord{}, nil, err
+	}
+	rec := commitRecord{
+		SchemaName:             schemaCommitRecord,
+		SchemaVersion:          schemaVersion,
+		CaseID:                 caseID,
+		Sequence:               seq,
+		CommitID:               commitID,
+		ParentCommitID:         parent,
+		SnapshotID:             snapshotID,
+		SnapshotManifestSHA256: manifestSHA,
+		CommittedAt:            committedAt,
+		Reason:                 reason,
+	}
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return commitRecord{}, nil, err
+	}
+	return rec, raw, nil
+}
+
+// computeCommitID hashes the canonical commit body without commit_id.
+func computeCommitID(caseID string, seq uint64, parent *string, snapshotID, manifestSHA, committedAt, reason string) (string, error) {
 	body := struct {
 		SchemaName             string  `json:"schema_name"`
 		SchemaVersion          string  `json:"schema_version"`
@@ -402,27 +451,14 @@ func buildCommitRecord(caseID string, seq uint64, parent *string, snapshotID, ma
 	}
 	canonical, err := json.Marshal(body)
 	if err != nil {
-		return commitRecord{}, nil, err
+		return "", err
 	}
 	sum := sha256.Sum256(canonical)
-	commitID := "commit-" + hex.EncodeToString(sum[:])[:24]
-	rec := commitRecord{
-		SchemaName:             schemaCommitRecord,
-		SchemaVersion:          schemaVersion,
-		CaseID:                 caseID,
-		Sequence:               seq,
-		CommitID:               commitID,
-		ParentCommitID:         parent,
-		SnapshotID:             snapshotID,
-		SnapshotManifestSHA256: manifestSHA,
-		CommittedAt:            committedAt,
-		Reason:                 reason,
-	}
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return commitRecord{}, nil, err
-	}
-	return rec, raw, nil
+	return "commit-" + hex.EncodeToString(sum[:])[:24], nil
+}
+
+func computeCommitIDFromRecord(rec commitRecord) (string, error) {
+	return computeCommitID(rec.CaseID, rec.Sequence, rec.ParentCommitID, rec.SnapshotID, rec.SnapshotManifestSHA256, rec.CommittedAt, rec.Reason)
 }
 
 func parentString(p *string) string {

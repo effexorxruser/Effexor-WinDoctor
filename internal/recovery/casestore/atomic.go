@@ -16,12 +16,22 @@ const dirPerm = 0o755
 // writeFileDurable writes data atomically: temp in same dir (O_EXCL), sync,
 // close, rename, then best-effort parent directory sync.
 func writeFileDurable(path string, data []byte, entropy io.Reader) (warnings []string, err error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
+	if err := writeFileExclusiveRename(path, data, entropy); err != nil {
 		return nil, err
 	}
+	return syncDir(filepath.Dir(path))
+}
+
+// writeFileExclusiveRename writes data via exclusive temp, sync, close, rename.
+// It does not sync the parent directory; callers that need a publication
+// boundary between rename and directory sync should call syncDir separately.
+func writeFileExclusiveRename(path string, data []byte, entropy io.Reader) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return err
+	}
 	if err := ensureNotSymlink(dir); err != nil {
-		return nil, err
+		return err
 	}
 	if entropy == nil {
 		entropy = rand.Reader
@@ -31,7 +41,7 @@ func writeFileDurable(path string, data []byte, entropy io.Reader) (warnings []s
 	for i := 0; i < 8; i++ {
 		suffix, err := randomHex(entropy, 8)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		tmp = filepath.Join(dir, filepath.Base(path)+"."+suffix+tempSuffix)
 		f, err = os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePerm)
@@ -39,12 +49,12 @@ func writeFileDurable(path string, data []byte, entropy io.Reader) (warnings []s
 			break
 		}
 		if !os.IsExist(err) {
-			return nil, err
+			return err
 		}
 		f = nil
 	}
 	if f == nil {
-		return nil, fmt.Errorf("casestore: unable to create exclusive temp file for %s", path)
+		return fmt.Errorf("casestore: unable to create exclusive temp file for %s", path)
 	}
 	cleanup := true
 	defer func() {
@@ -59,26 +69,25 @@ func writeFileDurable(path string, data []byte, entropy io.Reader) (warnings []s
 		n, werr := f.Write(data[written:])
 		written += n
 		if werr != nil {
-			return nil, werr
+			return werr
 		}
 	}
 	if written != len(data) {
-		return nil, fmt.Errorf("casestore: short write to %s: %d/%d", tmp, written, len(data))
+		return fmt.Errorf("casestore: short write to %s: %d/%d", tmp, written, len(data))
 	}
 	if err := f.Sync(); err != nil {
-		return nil, err
+		return err
 	}
 	if err := f.Close(); err != nil {
-		return nil, err
+		return err
 	}
 	cleanup = false
 
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
-		return nil, err
+		return err
 	}
-	warnings, err = syncDir(dir)
-	return warnings, err
+	return nil
 }
 
 func randomHex(r io.Reader, nBytes int) (string, error) {

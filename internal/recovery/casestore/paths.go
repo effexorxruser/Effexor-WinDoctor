@@ -152,6 +152,48 @@ func (s *Store) ensureUnderRoot(abs string) error {
 	return nil
 }
 
+// ensureManagedPath checks that path is under the store root and that every
+// ancestor from path up to and including root is not a symlink/reparse point.
+func (s *Store) ensureManagedPath(path string) error {
+	if err := s.ensureUnderRoot(path); err != nil {
+		return err
+	}
+	cleanRoot, err := filepath.Abs(s.root)
+	if err != nil {
+		return err
+	}
+	cleanAbs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	cur := cleanAbs
+	for {
+		if err := ensureNotSymlink(cur); err != nil {
+			return err
+		}
+		if samePath(cur, cleanRoot) {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if samePath(parent, cur) {
+			return fmt.Errorf("%w: path %q escaped while walking ancestors", ErrPathUnsafe, path)
+		}
+		cur = parent
+		// Defensive: refuse walking above root even if Rel was confused.
+		rel, err := filepath.Rel(cleanRoot, cur)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			if !samePath(cur, cleanRoot) {
+				return fmt.Errorf("%w: ancestor walk escaped store root for %q", ErrPathUnsafe, path)
+			}
+		}
+	}
+	return nil
+}
+
+func samePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
 func ensureNotSymlink(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
