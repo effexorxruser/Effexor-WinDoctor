@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/facts/legacy-diagnostic-report-fragment-1.0.0/legacy-diagnostic-report-fragment.schema.json",
+  "title": "Effexor Recovery legacy diagnostic-report fragment facts 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "source_schema_name",
+    "source_schema_version",
+    "source_report_id",
+    "raw_source_sha256",
+    "normalized_report_sha256",
+    "source_collector",
+    "source_collector_version",
+    "source_path",
+    "entity_kind",
+    "payload",
+    "related_target_ids",
+    "limitations"
+  ],
+  "properties": {
+    "schema_name": { "const": "legacy-diagnostic-report-fragment" },
+    "schema_version": { "const": "1.0.0" },
+    "source_schema_name": { "const": "diagnostic-report" },
+    "source_schema_version": { "const": "1.3.0" },
+    "source_report_id": { "type": "string", "minLength": 1 },
+    "raw_source_sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "normalized_report_sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "source_collector": { "type": "string", "minLength": 1 },
+    "source_collector_version": { "type": "string", "minLength": 1 },
+    "source_path": { "type": "string", "minLength": 1 },
+    "entity_kind": {
+      "type": "string",
+      "enum": [
+        "firmware_environment",
+        "disk",
+        "partition",
+        "windows_installation",
+        "boot_store",
+        "bitlocker_volume"
+      ]
+    },
+    "payload": {
+      "type": ["object", "array", "boolean", "number", "string"]
+    },
+    "related_target_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^target-[a-z0-9-]{8,64}$"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

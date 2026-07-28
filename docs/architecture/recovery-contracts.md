@@ -22,6 +22,13 @@ Go types live in `internal/recovery/domain`.
 JSON Schema compilation helpers live in `internal/recovery/validation`.
 Fixtures live in `fixtures/recovery/{valid,invalid}`.
 
+## Legacy diagnostic-report importer
+
+A pure importer maps collector `diagnostic-report` 1.3.0 into
+`CaseManifest` / `Target` / `EvidenceBundle` documents. See
+[`legacy-report-importer.md`](./legacy-report-importer.md).
+It does not write Case Store files, create Findings, or execute operations.
+
 ## Envelope strictness
 
 Every document envelope uses JSON Schema Draft 2020-12 with

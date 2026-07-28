@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.3.0",
+  "report_id": "report-legacy-import-bitlocker-partial-01",
+  "collected_at": "2026-07-27T15:00:00Z",
+  "collector": {
+    "name": "effexorwinpe-collector",
+    "version": "test-fixture"
+  },
+  "environment": {
+    "runtime_os": "windows",
+    "runtime_arch": "amd64"
+  },
+  "hardware": {
+    "firmware_mode": "uefi",
+    "system": {
+      "manufacturer": "Example OEM",
+      "model": "Anon-Notebook"
+    },
+    "processor": {
+      "name": "Example CPU",
+      "cores": 4,
+      "logical_processors": 8
+    },
+    "memory": {
+      "total_physical_bytes": 17179869184
+    },
+    "network_adapters": []
+  },
+  "storage": {
+    "disks": [
+      {
+        "number": 0,
+        "friendly_name": "Example NVMe",
+        "bus_type": "NVMe",
+        "size_bytes": 512110190592,
+        "partition_style": "GPT",
+        "health_status": "Healthy",
+        "operational_status": "Online",
+        "is_boot": true,
+        "is_system": true
+      }
+    ],
+    "drive_health": [
+      {
+        "device_id": "0",
+        "friendly_name": "Example NVMe",
+        "media_type": "SSD",
+        "health_status": "Healthy",
+        "temperature_celsius": 40,
+        "wear_percent": 5,
+        "power_on_hours": 800,
+        "read_errors_total": 0,
+        "write_errors_total": 0
+      }
+    ],
+    "partitions": [
+      {
+        "disk_number": 0,
+        "partition_number": 1,
+        "drive_letter": "C",
+        "size_bytes": 428000000000,
+        "type": "Basic",
+        "is_active": false
+      }
+    ],
+    "bitlocker_volumes": [
+      {
+        "mount_point": "C:",
+        "volume_status": null,
+        "protection_status": "On",
+        "lock_status": "Unlocked",
+        "encryption_method": null
+      }
+    ],
+    "bitlocker_inventory": {
+      "status": "partial",
+      "error": "incomplete BitLocker fields"
+    }
+  },
+  "boot": {
+    "firmware_mode": "uefi",
+    "bcd_stores": [
+      {
+        "path": "C:\\Boot\\BCD",
+        "kind": "legacy"
+      }
+    ]
+  },
+  "windows_installations": [
+    {
+      "root": "C:\\Windows",
+      "system_hive": "C:\\Windows\\System32\\config\\SYSTEM",
+      "software_hive": "C:\\Windows\\System32\\config\\SOFTWARE"
+    }
+  ],
+  "checks": [
+    {
+      "id": "collector.runtime",
+      "status": "ok",
+      "summary": "collector running"
+    }
+  ],
+  "privacy": {
+    "contains_personal_data": true,
+    "excluded_by_default": ["hostname"]
+  }
+}
