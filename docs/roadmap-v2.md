@@ -20,9 +20,10 @@ traceability of what already shipped under the EffexorWinPE MVP framing.
 
 | Slice | Tentative PR label | Intent | Status |
 |-------|--------------------|--------|--------|
-| **R0** | ~foundation docs (this work) | Product boundary, glossary, ADRs, overview | In progress (docs only) |
-| **R1** | ~domain contracts | Shared typed contracts for evidence/finding/plan/operation (schemas evolve in a later PR; not in R0) | Not started |
-| **R2** | ~recovery coordinator skeleton | Local orchestration API that cannot mutate yet | Not started |
+| **R0** | ~foundation docs | Product boundary, glossary, ADRs, overview | Completed |
+| **R1** | ~domain contracts | Shared typed contracts for evidence/finding/plan/operation | Completed |
+| — | ~legacy importer bridge | diagnostic-report 1.3.0 → Case/Target/Evidence | Completed |
+| **R2** | ~Case Store / coordinator foundation | Local persistence + orchestration API that cannot mutate yet | Case Store in progress |
 | **R3** | ~Boot Doctor read path | First vertical: boot evidence → findings only | Not started |
 | **R4** | ~policy + approval surface | Explicit local approval records; UI cannot bypass | Not started |
 | **R5** | ~typed read ops expansion | More read-only operations under policy | Not started |

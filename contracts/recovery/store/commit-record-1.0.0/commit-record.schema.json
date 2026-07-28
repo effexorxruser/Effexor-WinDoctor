@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/store/commit-record-1.0.0/commit-record.schema.json",
+  "title": "Effexor Recovery Case Store commit record 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "case_id",
+    "sequence",
+    "commit_id",
+    "parent_commit_id",
+    "snapshot_id",
+    "snapshot_manifest_sha256",
+    "committed_at",
+    "reason"
+  ],
+  "properties": {
+    "schema_name": { "const": "commit-record" },
+    "schema_version": { "const": "1.0.0" },
+    "case_id": {
+      "type": "string",
+      "pattern": "^case-[a-f0-9]{24}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "commit_id": {
+      "type": "string",
+      "pattern": "^commit-[a-f0-9]{24}$"
+    },
+    "parent_commit_id": {
+      "type": ["string", "null"],
+      "pattern": "^commit-[a-f0-9]{24}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^snapshot-[a-f0-9]{24}$"
+    },
+    "snapshot_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "committed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["legacy_import", "case_snapshot"]
+    }
+  }
+}

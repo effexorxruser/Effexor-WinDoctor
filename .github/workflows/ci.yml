@@ -44,6 +44,8 @@ jobs:
           jq empty contracts/diagnostic-report.schema.json
           jq empty contracts/diagnosis.schema.json
           jq empty contracts/diagnostic-session.schema.json
+          jq empty contracts/recovery/store/snapshot-manifest-1.0.0/snapshot-manifest.schema.json
+          jq empty contracts/recovery/store/commit-record-1.0.0/commit-record.schema.json
           jq empty manifests/tools.json
           jq empty manifests/drivers.json
           jq empty manifests/image-payload.json
@@ -60,6 +62,9 @@ jobs:
       - name: Test Windows implementation
         shell: pwsh
         run: ./build/Test-Repository.ps1
+      - name: Test Case Store on Windows
+        shell: pwsh
+        run: go test ./internal/recovery/casestore/... -count=1
       - name: Build WinPE executables
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP/effexorwinpe-collector.exe" ./cmd/effexorwinpe-collector
