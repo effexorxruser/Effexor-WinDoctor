@@ -1,5 +1,11 @@
 package legacyreport
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
 type factsEnvelope struct {
 	SchemaName             string   `json:"schema_name"`
 	SchemaVersion          string   `json:"schema_version"`
@@ -26,6 +32,9 @@ func buildFacts(ctx *importContext, ent orderedEntity, related []string, limitat
 	if limCopy == nil {
 		limCopy = []string{}
 	}
+	if ent.payload == nil {
+		return factsEnvelope{}, fmt.Errorf("payload must not be null")
+	}
 	return factsEnvelope{
 		SchemaName:             factsSchemaName,
 		SchemaVersion:          factsSchemaVersion,
@@ -42,4 +51,24 @@ func buildFacts(ctx *importContext, ent orderedEntity, related []string, limitat
 		RelatedTargetIDs:       relatedCopy,
 		Limitations:            limCopy,
 	}, nil
+}
+
+// decodeFactsStrict decodes a facts envelope with unknown-field rejection and
+// UseNumber so payload numerics keep integer precision. payload remains an
+// intentional extension point but must not be JSON null.
+func decodeFactsStrict(raw []byte) (factsEnvelope, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	dec.UseNumber()
+	var out factsEnvelope
+	if err := dec.Decode(&out); err != nil {
+		return factsEnvelope{}, fmt.Errorf("decode facts: %w", err)
+	}
+	if err := requireJSONEOF(dec); err != nil {
+		return factsEnvelope{}, fmt.Errorf("decode facts: %w", err)
+	}
+	if out.Payload == nil {
+		return factsEnvelope{}, fmt.Errorf("payload must not be null")
+	}
+	return out, nil
 }

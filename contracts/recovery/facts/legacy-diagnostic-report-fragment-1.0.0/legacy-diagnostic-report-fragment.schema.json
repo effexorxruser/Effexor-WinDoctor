@@ -48,7 +48,9 @@
         "bitlocker_volume"
       ]
     },
-    "payload": {},
+    "payload": {
+      "type": ["object", "array", "boolean", "number", "string"]
+    },
     "related_target_ids": {
       "type": "array",
       "items": {

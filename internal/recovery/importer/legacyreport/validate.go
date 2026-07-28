@@ -1,7 +1,6 @@
 package legacyreport
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -28,8 +27,17 @@ func (r Result) Validate() error {
 	if err := r.Case.Validate(); err != nil {
 		return fmt.Errorf("case: %w", err)
 	}
+	if len(r.Targets) == 0 {
+		return fmt.Errorf("targets must not be empty")
+	}
+	if len(r.EvidenceBundles) == 0 {
+		return fmt.Errorf("evidence_bundles must not be empty")
+	}
 	if len(r.Case.TargetIDs) != len(r.Targets) {
 		return fmt.Errorf("case.target_ids length %d does not match targets length %d", len(r.Case.TargetIDs), len(r.Targets))
+	}
+	if err := validateFirmwareInvariants(r); err != nil {
+		return err
 	}
 
 	targetIDs := make(map[string]struct{}, len(r.Targets))
@@ -66,6 +74,9 @@ func (r Result) Validate() error {
 		expectedCollector    string
 		expectedCollectorVer string
 		haveFactsBaseline    bool
+		sawEmptyArtifacts    bool
+		sawNonEmptyArtifacts bool
+		canonicalArtifact    *domain.ArtifactRef
 	)
 
 	for i, bundle := range r.EvidenceBundles {
@@ -99,9 +110,9 @@ func (r Result) Validate() error {
 			return fmt.Errorf("evidence_bundles[%d] captured_at must match case timestamps", i)
 		}
 
-		var facts factsEnvelope
-		if err := json.Unmarshal(bundle.Facts, &facts); err != nil {
-			return fmt.Errorf("evidence_bundles[%d].facts decode: %w", i, err)
+		facts, err := decodeFactsStrict(bundle.Facts)
+		if err != nil {
+			return fmt.Errorf("evidence_bundles[%d].facts: %w", i, err)
 		}
 		if err := facts.Validate(); err != nil {
 			return fmt.Errorf("evidence_bundles[%d].facts: %w", i, err)
@@ -113,6 +124,29 @@ func (r Result) Validate() error {
 		}
 		if !strings.EqualFold(facts.NormalizedReportSHA256, target.StableIdentity["legacy_report_hash"]) {
 			return fmt.Errorf("evidence_bundles[%d] normalized hash does not match target legacy_report_hash", i)
+		}
+		if !entityKindMatchesTargetType(facts.EntityKind, target.TargetType) {
+			return fmt.Errorf("evidence_bundles[%d] entity_kind %q does not match target_type %q", i, facts.EntityKind, target.TargetType)
+		}
+
+		wantCaseID := caseIDFromNormalizedHash(facts.NormalizedReportSHA256)
+		if r.Case.CaseID != wantCaseID || bundle.CaseID != wantCaseID {
+			return fmt.Errorf("evidence_bundles[%d] case_id does not match normalized-hash provenance", i)
+		}
+		wantTargetID := targetIDFrom(wantCaseID, facts.SourcePath)
+		if target.TargetID != wantTargetID || bundle.TargetID != wantTargetID {
+			return fmt.Errorf("evidence_bundles[%d] target_id does not match provenance", i)
+		}
+		wantEvidenceID := evidenceIDFrom(wantCaseID, wantTargetID, factsSchemaVersion)
+		if bundle.EvidenceID != wantEvidenceID {
+			return fmt.Errorf("evidence_bundles[%d] evidence_id does not match provenance", i)
+		}
+		fp, err := entityFingerprint(facts.Payload)
+		if err != nil {
+			return fmt.Errorf("evidence_bundles[%d] fingerprint: %w", i, err)
+		}
+		if !strings.EqualFold(fp, target.StableIdentity["legacy_entity_fingerprint"]) {
+			return fmt.Errorf("evidence_bundles[%d] payload fingerprint does not match stable identity", i)
 		}
 
 		if !haveFactsBaseline {
@@ -145,10 +179,37 @@ func (r Result) Validate() error {
 				return fmt.Errorf("evidence_bundles[%d] related_target_id %q is unknown", i, related)
 			}
 		}
-		for _, a := range bundle.Artifacts {
-			artifactIDs = append(artifactIDs, a.ArtifactID)
+
+		switch len(bundle.Artifacts) {
+		case 0:
+			sawEmptyArtifacts = true
+		case 1:
+			sawNonEmptyArtifacts = true
+			art := bundle.Artifacts[0]
+			if canonicalArtifact == nil {
+				copyArt := art
+				canonicalArtifact = &copyArt
+			} else if !sameArtifactRef(*canonicalArtifact, art) {
+				if canonicalArtifact.ArtifactID == art.ArtifactID {
+					return fmt.Errorf("evidence_bundles[%d] diverging ArtifactRef with same artifact_id", i)
+				}
+				return fmt.Errorf("evidence_bundles[%d] ArtifactRef diverges across bundles", i)
+			}
+			artifactIDs = append(artifactIDs, art.ArtifactID)
+		default:
+			return fmt.Errorf("evidence_bundles[%d] must have zero or one SourceArtifact", i)
 		}
 	}
+
+	if sawEmptyArtifacts && sawNonEmptyArtifacts {
+		return fmt.Errorf("artifacts must be either absent in all bundles or present in every bundle")
+	}
+	if canonicalArtifact != nil {
+		if !strings.EqualFold(canonicalArtifact.SHA256, expectedRawHash) {
+			return fmt.Errorf("SourceArtifact.sha256 must match facts raw_source_sha256")
+		}
+	}
+
 	for targetID, count := range bundleByTarget {
 		if count != 1 {
 			return fmt.Errorf("target %q has %d evidence bundles; want exactly 1", targetID, count)
@@ -169,6 +230,58 @@ func (r Result) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateFirmwareInvariants(r Result) error {
+	firmwareCount := 0
+	for _, target := range r.Targets {
+		if target.TargetType == "firmware" {
+			firmwareCount++
+		}
+	}
+	if firmwareCount != 1 {
+		return fmt.Errorf("result must contain exactly one firmware target, found %d", firmwareCount)
+	}
+	if r.Targets[0].TargetType != "firmware" {
+		return fmt.Errorf("firmware target must be first")
+	}
+	facts, err := decodeFactsStrict(r.EvidenceBundles[0].Facts)
+	if err != nil {
+		return fmt.Errorf("firmware evidence facts: %w", err)
+	}
+	if facts.EntityKind != "firmware_environment" {
+		return fmt.Errorf("firmware facts entity_kind must be firmware_environment")
+	}
+	return nil
+}
+
+func entityKindMatchesTargetType(kind, targetType string) bool {
+	switch kind {
+	case "firmware_environment":
+		return targetType == "firmware"
+	case "disk":
+		return targetType == "disk"
+	case "partition":
+		return targetType == "partition"
+	case "windows_installation":
+		return targetType == "windows_installation"
+	case "boot_store":
+		return targetType == "boot_store"
+	case "bitlocker_volume":
+		return targetType == "volume"
+	default:
+		return false
+	}
+}
+
+func sameArtifactRef(a, b domain.ArtifactRef) bool {
+	return a.ArtifactID == b.ArtifactID &&
+		a.Kind == b.Kind &&
+		a.RelativePath == b.RelativePath &&
+		strings.EqualFold(a.SHA256, b.SHA256) &&
+		a.SizeBytes == b.SizeBytes &&
+		a.CreatedAt == b.CreatedAt &&
+		a.MediaClassification == b.MediaClassification
 }
 
 // Validate checks the facts envelope without JSON Schema compilation.
@@ -218,7 +331,7 @@ func (f factsEnvelope) Validate() error {
 		return fmt.Errorf("limitations is required")
 	}
 	if f.Payload == nil {
-		return fmt.Errorf("payload is required")
+		return fmt.Errorf("payload must not be null")
 	}
 	return nil
 }

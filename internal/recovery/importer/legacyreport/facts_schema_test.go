@@ -31,6 +31,30 @@ func TestFactsSchemaAcceptsImportedFacts(t *testing.T) {
 	}
 }
 
+func TestFactsSchemaRejectsNullPayload(t *testing.T) {
+	schema := compileFactsSchema(t)
+	result, err := legacyreport.ImportJSON(testdata(t, "report-uefi-bitlocker-unavailable.json"), legacyreport.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var facts map[string]any
+	if err := json.Unmarshal(result.EvidenceBundles[0].Facts, &facts); err != nil {
+		t.Fatal(err)
+	}
+	facts["payload"] = nil
+	raw, err := json.Marshal(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var instance any
+	if err := json.Unmarshal(raw, &instance); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(instance); err == nil {
+		t.Fatal("expected schema rejection for payload=null")
+	}
+}
+
 func compileFactsSchema(t *testing.T) *jsonschema.Schema {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

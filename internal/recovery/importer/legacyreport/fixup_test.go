@@ -157,74 +157,161 @@ func TestValidateTamperingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	withArtifact, err := legacyreport.ImportJSON(raw, legacyreport.Options{
+		SourceArtifact: ptrArtifact(validSourceArtifact(raw)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name   string
+		base   legacyreport.Result
 		mutate func(r *legacyreport.Result)
 	}{
-		{"facts_schema", func(r *legacyreport.Result) {
+		{"facts_schema", base, func(r *legacyreport.Result) {
 			r.EvidenceBundles[0].FactsSchema = "wrong"
 		}},
-		{"source_path_vs_identity", func(r *legacyreport.Result) {
+		{"source_path_vs_identity", base, func(r *legacyreport.Result) {
 			r.Targets[0].StableIdentity["legacy_source_path"] = "tampered-path"
 		}},
-		{"normalized_hash_vs_identity", func(r *legacyreport.Result) {
+		{"normalized_hash_vs_identity", base, func(r *legacyreport.Result) {
 			r.Targets[0].StableIdentity["legacy_report_hash"] = strings.Repeat("b", 64)
 		}},
-		{"inconsistent_report_id", func(r *legacyreport.Result) {
-			var facts map[string]any
-			_ = json.Unmarshal(r.EvidenceBundles[1].Facts, &facts)
-			facts["source_report_id"] = "tampered-report-id"
-			r.EvidenceBundles[1].Facts, _ = json.Marshal(facts)
+		{"inconsistent_report_id", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				facts["source_report_id"] = "tampered-report-id"
+			})
 		}},
-		{"inconsistent_raw_hash", func(r *legacyreport.Result) {
-			var facts map[string]any
-			_ = json.Unmarshal(r.EvidenceBundles[1].Facts, &facts)
-			facts["raw_source_sha256"] = strings.Repeat("c", 64)
-			r.EvidenceBundles[1].Facts, _ = json.Marshal(facts)
+		{"inconsistent_raw_hash", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				facts["raw_source_sha256"] = strings.Repeat("c", 64)
+			})
 		}},
-		{"inconsistent_normalized_hash", func(r *legacyreport.Result) {
-			var facts map[string]any
-			_ = json.Unmarshal(r.EvidenceBundles[1].Facts, &facts)
-			facts["normalized_report_sha256"] = strings.Repeat("d", 64)
-			// keep identity match for this bundle's target so hash-vs-identity
-			// is not the first failure; consistency across bundles should fail.
+		{"inconsistent_normalized_hash", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				facts["normalized_report_sha256"] = strings.Repeat("d", 64)
+			})
 			r.Targets[1].StableIdentity["legacy_report_hash"] = strings.Repeat("d", 64)
-			r.EvidenceBundles[1].Facts, _ = json.Marshal(facts)
 		}},
-		{"inconsistent_source_collector", func(r *legacyreport.Result) {
-			var facts map[string]any
-			_ = json.Unmarshal(r.EvidenceBundles[1].Facts, &facts)
-			facts["source_collector"] = "tampered-collector"
-			r.EvidenceBundles[1].Facts, _ = json.Marshal(facts)
+		{"inconsistent_source_collector", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				facts["source_collector"] = "tampered-collector"
+			})
 		}},
-		{"bundle_collector", func(r *legacyreport.Result) {
+		{"bundle_collector", base, func(r *legacyreport.Result) {
 			r.EvidenceBundles[0].Collector = "tampered"
 		}},
-		{"bundle_collector_version", func(r *legacyreport.Result) {
+		{"bundle_collector_version", base, func(r *legacyreport.Result) {
 			r.EvidenceBundles[0].CollectorVersion = "9.9.9"
 		}},
-		{"captured_at", func(r *legacyreport.Result) {
+		{"captured_at", base, func(r *legacyreport.Result) {
 			r.EvidenceBundles[0].CapturedAt = "2020-01-01T00:00:00Z"
 		}},
-		{"broken_related_ref", func(r *legacyreport.Result) {
-			var facts map[string]any
-			_ = json.Unmarshal(r.EvidenceBundles[0].Facts, &facts)
-			facts["related_target_ids"] = []string{"target-does-not-exist-xxxxxxxx"}
-			r.EvidenceBundles[0].Facts, _ = json.Marshal(facts)
+		{"broken_related_ref", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[0], func(facts map[string]any) {
+				facts["related_target_ids"] = []string{"target-does-not-exist-xxxxxxxx"}
+			})
+		}},
+		{"unknown_facts_field", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[0], func(facts map[string]any) {
+				facts["unexpected_field"] = true
+			})
+		}},
+		{"payload_null", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[0], func(facts map[string]any) {
+				facts["payload"] = nil
+			})
+		}},
+		{"modified_case_id", base, func(r *legacyreport.Result) {
+			r.Case.CaseID = "case-ffffffffffffffffffffffff"
+			for i := range r.EvidenceBundles {
+				r.EvidenceBundles[i].CaseID = r.Case.CaseID
+			}
+		}},
+		{"modified_target_id", base, func(r *legacyreport.Result) {
+			r.Targets[1].TargetID = "target-tampered-target-id-01"
+			r.Case.TargetIDs[1] = r.Targets[1].TargetID
+			r.EvidenceBundles[1].TargetID = r.Targets[1].TargetID
+		}},
+		{"modified_evidence_id", base, func(r *legacyreport.Result) {
+			r.EvidenceBundles[1].EvidenceID = "evidence-ffffffffffffffffffffffff"
+		}},
+		{"modified_payload_without_fingerprint", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				payload := facts["payload"].(map[string]any)
+				payload["friendly_name"] = "tampered-disk-name"
+			})
+		}},
+		{"modified_fingerprint", base, func(r *legacyreport.Result) {
+			r.Targets[1].StableIdentity["legacy_entity_fingerprint"] = strings.Repeat("e", 64)
+		}},
+		{"entity_kind_target_type_mismatch", base, func(r *legacyreport.Result) {
+			mutateFacts(t, &r.EvidenceBundles[1], func(facts map[string]any) {
+				facts["entity_kind"] = "partition"
+			})
+		}},
+		{"empty_result", base, func(r *legacyreport.Result) {
+			r.Targets = nil
+			r.EvidenceBundles = nil
+			r.Case.TargetIDs = nil
+		}},
+		{"missing_firmware_target", base, func(r *legacyreport.Result) {
+			r.Targets[0].TargetType = "disk"
+			mutateFacts(t, &r.EvidenceBundles[0], func(facts map[string]any) {
+				facts["entity_kind"] = "disk"
+			})
+		}},
+		{"artifact_only_in_one_bundle", withArtifact, func(r *legacyreport.Result) {
+			r.EvidenceBundles[0].Artifacts = []domain.ArtifactRef{}
+		}},
+		{"divergent_artifacts", withArtifact, func(r *legacyreport.Result) {
+			art := r.EvidenceBundles[1].Artifacts[0]
+			art.RelativePath = "imports/other.json"
+			r.EvidenceBundles[1].Artifacts[0] = art
+		}},
+		{"divergent_artifacts_same_id", withArtifact, func(r *legacyreport.Result) {
+			art := r.EvidenceBundles[1].Artifacts[0]
+			art.Kind = "json"
+			r.EvidenceBundles[1].Artifacts[0] = art
+		}},
+		{"artifact_hash_vs_raw_mismatch", withArtifact, func(r *legacyreport.Result) {
+			for i := range r.EvidenceBundles {
+				art := r.EvidenceBundles[i].Artifacts[0]
+				art.SHA256 = strings.Repeat("f", 64)
+				r.EvidenceBundles[i].Artifacts[0] = art
+			}
 		}},
 	}
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			clone := cloneResult(t, base)
+			clone := cloneResult(t, test.base)
 			test.mutate(&clone)
 			if err := clone.Validate(); err == nil {
 				t.Fatal("expected Validate rejection")
 			}
 		})
 	}
+}
+
+func mutateFacts(t *testing.T, bundle *domain.EvidenceBundle, mutator func(map[string]any)) {
+	t.Helper()
+	var facts map[string]any
+	if err := json.Unmarshal(bundle.Facts, &facts); err != nil {
+		t.Fatal(err)
+	}
+	mutator(facts)
+	raw, err := json.Marshal(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle.Facts = raw
+}
+
+func ptrArtifact(a domain.ArtifactRef) *domain.ArtifactRef {
+	return &a
 }
 
 func validSourceArtifact(raw []byte) domain.ArtifactRef {
