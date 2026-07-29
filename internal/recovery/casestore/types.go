@@ -93,6 +93,8 @@ type RecoveryInspection struct {
 	InspectedAt               string   `json:"inspected_at"`
 	ValidCommittedSnapshots   []string `json:"valid_committed_snapshots"`
 	ValidCommitIDs            []string `json:"valid_commit_ids,omitempty"`
+	ReferencedFinalSnapshots  []string `json:"referenced_final_snapshots,omitempty"`
+	BrokenTailSnapshots       []string `json:"broken_tail_snapshot_ids,omitempty"`
 	StagingTransactions       []string `json:"staging_transactions"`
 	TemporaryCommitFiles      []string `json:"temporary_commit_files"`
 	PublishedUncommitted      []string `json:"published_uncommitted_snapshots"`

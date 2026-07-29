@@ -203,6 +203,10 @@ func ensureDirNotSymlink(path string) error {
 	return ensureNotSymlink(path)
 }
 
+func isStagingTxnName(name string) bool {
+	return strings.HasPrefix(name, "txn-")
+}
+
 func isTempStoreName(name string) bool {
-	return strings.HasSuffix(name, tempSuffix) || strings.HasSuffix(name, ".tmp")
+	return strings.HasSuffix(name, tempSuffix)
 }

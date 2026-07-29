@@ -78,7 +78,7 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 		return Snapshot{}, err
 	}
 	snapDir := s.snapshotDir(caseID, head.SnapshotID)
-	if err := ensureDirNotSymlink(snapDir); err != nil {
+	if err := s.ensureManagedPath(snapDir); err != nil {
 		return Snapshot{}, err
 	}
 	manifestPath := filepath.Join(snapDir, "snapshot-manifest.json")
@@ -101,7 +101,7 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	}
 
 	docsDir := filepath.Join(snapDir, "documents")
-	if err := ensureDirNotSymlink(docsDir); err != nil {
+	if err := s.ensureManagedPath(docsDir); err != nil {
 		return Snapshot{}, err
 	}
 	expected := make(map[string]snapshotDocumentEntry, len(manifest.Documents))
@@ -113,11 +113,11 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 		if walkErr != nil {
 			return walkErr
 		}
-		if info.IsDir() {
-			return ensureNotSymlink(path)
-		}
-		if err := ensureNotSymlink(path); err != nil {
+		if err := s.ensureManagedPath(path); err != nil {
 			return err
+		}
+		if info.IsDir() {
+			return nil
 		}
 		rel, err := filepath.Rel(docsDir, path)
 		if err != nil {
@@ -207,7 +207,10 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 
 	for _, a := range manifest.Artifacts {
 		blob := s.blobAbsPath(caseID, a.SHA256)
-		if err := ensureNotSymlink(blob); err != nil {
+		if err := s.ensureManagedPath(filepath.Dir(blob)); err != nil {
+			return Snapshot{}, err
+		}
+		if err := s.ensureManagedPath(blob); err != nil {
 			return Snapshot{}, err
 		}
 		ok, err := verifyBlobFile(blob, a.SHA256, a.SizeBytes)
@@ -482,7 +485,7 @@ func (s *Store) loadCommitChain(caseID string) ([]commitRecord, error) {
 // tail filenames, and a non-nil error when the chain is incomplete or corrupt.
 func (s *Store) loadCommitChainPrefix(caseID string) (valid []commitRecord, brokenTail []string, err error) {
 	dir := s.commitsDir(caseID)
-	if err := ensureDirNotSymlink(dir); err != nil && !os.IsNotExist(err) {
+	if err := s.ensureManagedPath(dir); err != nil && !os.IsNotExist(err) {
 		return nil, nil, err
 	}
 	entries, err := os.ReadDir(dir)
@@ -501,7 +504,7 @@ func (s *Store) loadCommitChainPrefix(caseID string) (valid []commitRecord, brok
 			continue
 		}
 		path := filepath.Join(dir, name)
-		if err := ensureNotSymlink(path); err != nil {
+		if err := s.ensureManagedPath(path); err != nil {
 			return nil, nil, err
 		}
 		raw, err := os.ReadFile(path)

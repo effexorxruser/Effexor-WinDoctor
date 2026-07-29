@@ -21,6 +21,8 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		InspectedAt:               formatTime(s.clock.Now()),
 		ValidCommittedSnapshots:   []string{},
 		ValidCommitIDs:            []string{},
+		ReferencedFinalSnapshots:  []string{},
+		BrokenTailSnapshots:       []string{},
 		StagingTransactions:       []string{},
 		TemporaryCommitFiles:      []string{},
 		PublishedUncommitted:      []string{},
@@ -59,18 +61,44 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		}
 		ins.ValidCommittedSnapshots = append(ins.ValidCommittedSnapshots, c.SnapshotID)
 	}
+	parseableFinals, malformedFinals, scanWarnings := s.scanParseableFinalCommits(caseID)
+	for _, name := range malformedFinals {
+		appendUniqueString(&ins.MalformedFinalCommits, name)
+	}
+	ins.Warnings = append(ins.Warnings, scanWarnings...)
+	referencedFinals := map[string]struct{}{}
+	for _, rec := range parseableFinals {
+		referencedFinals[rec.SnapshotID] = struct{}{}
+		appendUniqueString(&ins.ReferencedFinalSnapshots, rec.SnapshotID)
+	}
+	for _, name := range brokenTail {
+		if rec, ok := parseableFinals[name]; ok {
+			appendUniqueString(&ins.BrokenTailSnapshots, rec.SnapshotID)
+		}
+	}
 
-	if entries, err := os.ReadDir(s.snapshotsDir(caseID)); err != nil && !os.IsNotExist(err) {
+	snapshotsRoot := s.snapshotsDir(caseID)
+	if err := s.ensureManagedPath(snapshotsRoot); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read snapshots: "+err.Error())
+	} else if entries, err := os.ReadDir(snapshotsRoot); err != nil && !os.IsNotExist(err) {
 		ins.Warnings = append(ins.Warnings, "read snapshots: "+err.Error())
 	} else if err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
 			}
+			path := filepath.Join(snapshotsRoot, e.Name())
+			if err := s.ensureManagedPath(path); err != nil {
+				ins.Warnings = append(ins.Warnings, "read snapshots: "+err.Error())
+				continue
+			}
 			if _, ok := committed[e.Name()]; ok {
 				continue
 			}
-			manifest := filepath.Join(s.snapshotDir(caseID, e.Name()), "snapshot-manifest.json")
+			if _, ok := referencedFinals[e.Name()]; ok {
+				continue
+			}
+			manifest := filepath.Join(path, "snapshot-manifest.json")
 			if _, err := os.Stat(manifest); os.IsNotExist(err) {
 				ins.MissingManifests = append(ins.MissingManifests, e.Name())
 			} else {
@@ -79,19 +107,37 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 		}
 	}
 
-	if entries, err := os.ReadDir(s.stagingDir(caseID)); err != nil && !os.IsNotExist(err) {
+	stageRoot := s.stagingDir(caseID)
+	if err := s.ensureManagedPath(stageRoot); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read staging: "+err.Error())
+	} else if entries, err := os.ReadDir(stageRoot); err != nil && !os.IsNotExist(err) {
 		ins.Warnings = append(ins.Warnings, "read staging: "+err.Error())
 	} else if err == nil {
 		for _, e := range entries {
-			ins.StagingTransactions = append(ins.StagingTransactions, e.Name())
+			path := filepath.Join(stageRoot, e.Name())
+			if err := s.ensureManagedPath(path); err != nil {
+				ins.Warnings = append(ins.Warnings, "read staging: "+err.Error())
+				continue
+			}
+			if e.IsDir() && isStagingTxnName(e.Name()) {
+				ins.StagingTransactions = append(ins.StagingTransactions, e.Name())
+			}
 		}
 	}
 
-	if entries, err := os.ReadDir(s.commitsDir(caseID)); err != nil && !os.IsNotExist(err) {
+	commitsRoot := s.commitsDir(caseID)
+	if err := s.ensureManagedPath(commitsRoot); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "read commits: "+err.Error())
+	} else if entries, err := os.ReadDir(commitsRoot); err != nil && !os.IsNotExist(err) {
 		ins.Warnings = append(ins.Warnings, "read commits: "+err.Error())
 	} else if err == nil {
 		for _, e := range entries {
 			name := e.Name()
+			path := filepath.Join(commitsRoot, name)
+			if err := s.ensureManagedPath(path); err != nil {
+				ins.Warnings = append(ins.Warnings, "read commits: "+err.Error())
+				continue
+			}
 			if isTempStoreName(name) {
 				ins.TemporaryCommitFiles = append(ins.TemporaryCommitFiles, name)
 				continue
@@ -99,26 +145,33 @@ func (s *Store) InspectRecovery(ctx context.Context, caseID string) (RecoveryIns
 			if !strings.HasSuffix(name, ".json") {
 				continue
 			}
-			path := filepath.Join(s.commitsDir(caseID), name)
 			raw, err := os.ReadFile(path)
 			if err != nil {
-				ins.MalformedFinalCommits = append(ins.MalformedFinalCommits, name)
+				appendUniqueString(&ins.MalformedFinalCommits, name)
 				continue
 			}
 			var rec commitRecord
 			if err := decodeStrict(raw, &rec); err != nil {
-				ins.MalformedFinalCommits = append(ins.MalformedFinalCommits, name)
+				appendUniqueString(&ins.MalformedFinalCommits, name)
 				continue
 			}
 			if commitFileName(rec.Sequence, rec.CommitID) != name {
-				ins.MalformedFinalCommits = append(ins.MalformedFinalCommits, name)
+				appendUniqueString(&ins.MalformedFinalCommits, name)
 			}
 		}
 	}
 
 	refs := s.listReferencedBlobs(caseID, chain)
-	if err := filepath.Walk(s.artifactsDir(caseID), func(path string, info os.FileInfo, err error) error {
+	artRoot := s.artifactsDir(caseID)
+	if err := s.ensureManagedPath(artRoot); err != nil && !os.IsNotExist(err) {
+		ins.Warnings = append(ins.Warnings, "walk artifacts: "+err.Error())
+		return ins, nil
+	}
+	if err := filepath.Walk(artRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := s.ensureManagedPath(path); err != nil {
 			return err
 		}
 		if info.IsDir() {
@@ -162,28 +215,51 @@ func (s *Store) CleanupStaging(ctx context.Context, caseID string) (CleanupRepor
 		PreservedSnapshots: []string{},
 		Warnings:           []string{},
 	}
+	if warnings, err := s.ensureCaseDirs(caseID); err != nil {
+		return report, err
+	} else {
+		report.Warnings = append(report.Warnings, warnings...)
+	}
 
 	err := s.withCaseLock(caseID, func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if entries, err := os.ReadDir(s.snapshotsDir(caseID)); err == nil {
+		snapshotsRoot := s.snapshotsDir(caseID)
+		if err := s.ensureManagedPath(snapshotsRoot); err != nil && !os.IsNotExist(err) {
+			report.Warnings = append(report.Warnings, "read snapshots: "+err.Error())
+		} else if entries, err := os.ReadDir(snapshotsRoot); err == nil {
 			for _, e := range entries {
+				path := filepath.Join(snapshotsRoot, e.Name())
+				if err := s.ensureManagedPath(path); err != nil {
+					report.Warnings = append(report.Warnings, "read snapshots: "+err.Error())
+					continue
+				}
 				if e.IsDir() {
 					report.PreservedSnapshots = append(report.PreservedSnapshots, e.Name())
 				}
 			}
+		} else if !os.IsNotExist(err) {
+			report.Warnings = append(report.Warnings, "read snapshots: "+err.Error())
 		}
 
 		stageRoot := s.stagingDir(caseID)
+		if err := s.ensureManagedPath(stageRoot); err != nil && !os.IsNotExist(err) {
+			report.Warnings = append(report.Warnings, "read staging: "+err.Error())
+			return nil
+		}
 		entries, err := os.ReadDir(stageRoot)
 		if err != nil && !os.IsNotExist(err) {
-			return err
+			report.Warnings = append(report.Warnings, "read staging: "+err.Error())
+			return nil
 		}
 		for _, e := range entries {
 			path := filepath.Join(stageRoot, e.Name())
-			if err := s.ensureUnderRoot(path); err != nil {
-				report.Warnings = append(report.Warnings, err.Error())
+			if err := s.ensureManagedPath(path); err != nil {
+				report.Warnings = append(report.Warnings, "read staging: "+err.Error())
+				continue
+			}
+			if !e.IsDir() || !isStagingTxnName(e.Name()) {
 				continue
 			}
 			if err := os.RemoveAll(path); err != nil {
@@ -196,15 +272,27 @@ func (s *Store) CleanupStaging(ctx context.Context, caseID string) (CleanupRepor
 		// Temporary files under commits/ and artifacts/.
 		roots := []string{s.commitsDir(caseID), filepath.Join(s.caseDir(caseID), "artifacts")}
 		for _, root := range roots {
+			if err := s.ensureManagedPath(root); err != nil && !os.IsNotExist(err) {
+				report.Warnings = append(report.Warnings, "walk temporary files: "+err.Error())
+				continue
+			}
 			_ = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-				if walkErr != nil || info == nil || info.IsDir() {
+				if walkErr != nil {
+					report.Warnings = append(report.Warnings, "walk temporary files: "+walkErr.Error())
+					return nil
+				}
+				if info == nil {
+					report.Warnings = append(report.Warnings, "walk temporary files: missing file info for "+path)
+					return nil
+				}
+				if err := s.ensureManagedPath(path); err != nil {
+					report.Warnings = append(report.Warnings, "walk temporary files: "+err.Error())
+					return nil
+				}
+				if info.IsDir() {
 					return nil
 				}
 				if !isTempStoreName(info.Name()) {
-					return nil
-				}
-				if err := s.ensureUnderRoot(path); err != nil {
-					report.Warnings = append(report.Warnings, err.Error())
 					return nil
 				}
 				if err := os.Remove(path); err != nil {
@@ -221,4 +309,64 @@ func (s *Store) CleanupStaging(ctx context.Context, caseID string) (CleanupRepor
 		return report, err
 	}
 	return report, nil
+}
+
+func (s *Store) scanParseableFinalCommits(caseID string) (map[string]commitRecord, []string, []string) {
+	dir := s.commitsDir(caseID)
+	if err := s.ensureManagedPath(dir); err != nil {
+		if os.IsNotExist(err) {
+			return map[string]commitRecord{}, nil, nil
+		}
+		return map[string]commitRecord{}, nil, []string{"read commits: " + err.Error()}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]commitRecord{}, nil, nil
+		}
+		return map[string]commitRecord{}, nil, []string{"read commits: " + err.Error()}
+	}
+	parseable := map[string]commitRecord{}
+	var malformed []string
+	var warnings []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || isTempStoreName(name) || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := s.ensureManagedPath(path); err != nil {
+			warnings = append(warnings, "read commits: "+err.Error())
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			malformed = append(malformed, name)
+			continue
+		}
+		var rec commitRecord
+		if err := decodeStrict(raw, &rec); err != nil {
+			malformed = append(malformed, name)
+			continue
+		}
+		if err := validateCommitRecord(rec, caseID); err != nil {
+			malformed = append(malformed, name)
+			continue
+		}
+		if commitFileName(rec.Sequence, rec.CommitID) != name {
+			malformed = append(malformed, name)
+			continue
+		}
+		parseable[name] = rec
+	}
+	return parseable, malformed, warnings
+}
+
+func appendUniqueString(dst *[]string, value string) {
+	for _, existing := range *dst {
+		if existing == value {
+			return
+		}
+	}
+	*dst = append(*dst, value)
 }

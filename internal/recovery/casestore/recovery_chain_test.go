@@ -2,7 +2,6 @@ package casestore
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -17,11 +16,11 @@ func TestInspectRecoveryKeepsValidPrefixOnBrokenTail(t *testing.T) {
 	snap3 := mutateCaseUpdatedAt(snap, "2026-07-27T16:00:00Z")
 	c3 := mustCommit(t, st, snap3, nil, CommitReasonCaseSnapshot)
 
-	// Corrupt the third commit file so the chain prefix is c1+c2.
+	// Make the third commit parseable but chain-invalid so the valid prefix is c1+c2.
 	badPath := filepath.Join(st.commitsDir(snap.Case.CaseID), commitFileName(c3.Sequence, c3.CommitID))
-	if err := os.WriteFile(badPath, []byte(`{not-json`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	tamperCommitField(t, badPath, func(m map[string]any) {
+		m["parent_commit_id"] = c1.CommitID
+	})
 
 	ins, err := st.InspectRecovery(context.Background(), snap.Case.CaseID)
 	if err != nil {
@@ -61,8 +60,20 @@ func TestInspectRecoveryKeepsValidPrefixOnBrokenTail(t *testing.T) {
 			t.Fatalf("unexpected valid commit %s", id)
 		}
 	}
+	wantReferenced := map[string]bool{c1.SnapshotID: true, c2.SnapshotID: true, c3.SnapshotID: true}
+	if len(ins.ReferencedFinalSnapshots) != 3 {
+		t.Fatalf("ReferencedFinalSnapshots=%v", ins.ReferencedFinalSnapshots)
+	}
+	for _, id := range ins.ReferencedFinalSnapshots {
+		if !wantReferenced[id] {
+			t.Fatalf("unexpected referenced final snapshot %s", id)
+		}
+	}
+	if len(ins.BrokenTailSnapshots) != 1 || ins.BrokenTailSnapshots[0] != c3.SnapshotID {
+		t.Fatalf("BrokenTailSnapshots=%v want [%s]", ins.BrokenTailSnapshots, c3.SnapshotID)
+	}
 	for _, p := range ins.PublishedUncommitted {
-		if p == c1.SnapshotID || p == c2.SnapshotID {
+		if p == c1.SnapshotID || p == c2.SnapshotID || p == c3.SnapshotID {
 			t.Fatalf("valid-prefix snapshot %s must not be PublishedUncommitted", p)
 		}
 	}

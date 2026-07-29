@@ -91,11 +91,13 @@ Under an exclusive case lock:
 2. Load/verify current commit chain
 3. Build deterministic documents + snapshot manifest
 4. If `snapshot_id` is already head → return idempotent `CommitInfo`
-5. Stage documents and artifacts; sync after each write
-6. Publish snapshot via same-filesystem rename
-7. Write commit record to a temp file, sync, rename to final name
-8. Best-effort sync of commits directory
-9. Unlock and return
+5. Create a fresh staging transaction directory via exclusive `txn-*` mkdir
+6. Stage documents and artifacts; sync after each write
+7. Sync newly created managed directories before they can contain committed data
+8. Publish snapshot via same-filesystem rename
+9. Write commit record to a temp file, sync, rename to final name
+10. Sync commits directory: Unix hard-error before returning success; Windows best-effort warning in `CommitInfo`
+11. Unlock and return
 
 Until the commit rename, the new state is not committed. After the rename,
 a directory flush failure yields `CommitOutcomeUnknownError`; retrying the
@@ -143,18 +145,29 @@ orphan, and malformed objects.
 
 `CleanupStaging` requires exclusive lock and removes **only**:
 
-- staging transaction directories
+- non-reparse staging transaction directories named `txn-*`
 - temporary files with the reserved store suffix
 
 It does **not** auto-delete committed snapshots, orphan published snapshots,
-content-addressed artifacts, or malformed final commits.
+content-addressed artifacts, malformed final commits, arbitrary staging files,
+or generic `.tmp` files.
 
 ## Durability limitations
 
-Directory fsync is best-effort and platform/filesystem dependent. FAT/exFAT,
-removable media, and write-cached controllers may lose recently published
-metadata after power loss even when file contents were synced. Warnings are
-surfaced; they are never silent successes.
+Directory sync behavior is platform-specific:
+
+- Unix: directory sync failures are hard errors and block commit success before
+  the commit marker is reported as durable
+- Windows: directory sync is best-effort and warnings are surfaced in
+  `CommitInfo`
+
+FAT/exFAT, removable media, and write-cached controllers may still lose
+recently published metadata after power loss even when file contents were
+synced. Warnings are surfaced; they are never silent successes.
+
+## Validation status
+
+The package is exercised in normal and race CI, including the GitHub race job.
 
 ## Threat model
 

@@ -31,21 +31,26 @@ func (s *Store) Commit(ctx context.Context, request CommitRequest) (CommitInfo, 
 	if err := s.ensureCaseTreeSafe(caseID); err != nil {
 		return CommitInfo{}, err
 	}
+	dirWarnings, err := s.ensureCaseDirs(caseID)
+	if err != nil {
+		return CommitInfo{}, err
+	}
 	var info CommitInfo
-	err := s.withCaseLock(caseID, func() error {
+	var warnings []string
+	warnings = append(warnings, dirWarnings...)
+	err = s.withCaseLock(caseID, func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		var cerr error
-		info, cerr = s.commitLocked(ctx, request)
+		info, cerr = s.commitLocked(ctx, request, warnings)
 		return cerr
 	})
 	return info, err
 }
 
-func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (CommitInfo, error) {
+func (s *Store) commitLocked(ctx context.Context, request CommitRequest, warnings []string) (CommitInfo, error) {
 	caseID := request.Snapshot.Case.CaseID
-	var warnings []string
 
 	artifacts, err := collectArtifactRefs(request.Snapshot)
 	if err != nil {
@@ -106,15 +111,9 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		}
 	}
 
-	stagingName, err := randomHex(s.entropy, 12)
+	stagingRoot, sw, err := s.createStagingTransaction(caseID)
+	warnings = append(warnings, sw...)
 	if err != nil {
-		return CommitInfo{}, err
-	}
-	stagingRoot := filepath.Join(s.stagingDir(caseID), "txn-"+stagingName)
-	if err := s.ensureUnderRoot(stagingRoot); err != nil {
-		return CommitInfo{}, err
-	}
-	if err := os.MkdirAll(stagingRoot, dirPerm); err != nil {
 		return CommitInfo{}, err
 	}
 	if err := s.maybeFail("after_staging_created"); err != nil {
@@ -125,7 +124,9 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	}
 
 	docsDir := filepath.Join(stagingRoot, "documents")
-	if err := os.MkdirAll(docsDir, dirPerm); err != nil {
+	w, err := s.ensureManagedDir(docsDir, "before_documents_directory_sync")
+	warnings = append(warnings, w...)
+	if err != nil {
 		return CommitInfo{}, err
 	}
 	for _, d := range docs {
@@ -136,10 +137,12 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		if err := s.ensureUnderRoot(dest); err != nil {
 			return CommitInfo{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), dirPerm); err != nil {
+		w, err = s.ensureManagedDir(filepath.Dir(dest), "before_documents_directory_sync")
+		warnings = append(warnings, w...)
+		if err != nil {
 			return CommitInfo{}, err
 		}
-		w, err := writeFileDurable(dest, d.Bytes, s.entropy)
+		w, err = writeFileDurable(dest, d.Bytes, s.entropy)
 		warnings = append(warnings, w...)
 		if err != nil {
 			return CommitInfo{}, err
@@ -162,7 +165,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	}
 
 	manifestPath := filepath.Join(stagingRoot, "snapshot-manifest.json")
-	w, err := writeFileDurable(manifestPath, manifestBytes, s.entropy)
+	w, err = writeFileDurable(manifestPath, manifestBytes, s.entropy)
 	warnings = append(warnings, w...)
 	if err != nil {
 		return CommitInfo{}, err
@@ -180,7 +183,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 	}
 	if _, err := os.Lstat(finalSnapDir); err == nil {
 		// Snapshot already published (orphan from prior crash). Fully verify before reuse.
-		if err := ensureNotSymlink(finalSnapDir); err != nil {
+		if err := s.ensureManagedPath(finalSnapDir); err != nil {
 			return CommitInfo{}, err
 		}
 		if err := s.verifyPublishedSnapshot(caseID, manifest.SnapshotID, sha256Hex(manifestBytes)); err != nil {
@@ -248,7 +251,7 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest) (Commit
 		}
 	}
 
-	dw, derr := syncDir(commitsDir)
+	dw, derr := s.syncDirChecked(commitsDir, "before_commit_directory_sync")
 	warnings = append(warnings, dw...)
 	if err := s.maybeFail("after_commit_directory_sync"); err != nil {
 		return CommitInfo{}, &CommitOutcomeUnknownError{
@@ -319,15 +322,15 @@ func (s *Store) ingestArtifact(ctx context.Context, caseID string, ref domain.Ar
 		return err
 	}
 	dest := s.blobAbsPath(caseID, sha)
-	if err := s.ensureUnderRoot(dest); err != nil {
+	if err := s.ensureManagedPath(dest); err != nil {
 		return err
 	}
-	if err := ensureNotSymlink(filepath.Dir(dest)); err != nil {
+	if err := s.ensureManagedPath(filepath.Dir(dest)); err != nil {
 		return err
 	}
 
 	if _, err := os.Lstat(dest); err == nil {
-		if err := ensureNotSymlink(dest); err != nil {
+		if err := s.ensureManagedPath(dest); err != nil {
 			return err
 		}
 		ok, verr := verifyBlobFile(dest, sha, ref.SizeBytes)
@@ -351,7 +354,9 @@ func (s *Store) ingestArtifact(ctx context.Context, caseID string, ref domain.Ar
 	}
 	defer rc.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dest), dirPerm); err != nil {
+	w, err := s.ensureManagedDir(filepath.Dir(dest), "before_artifact_hash_prefix_sync")
+	*warnings = append(*warnings, w...)
+	if err != nil {
 		return err
 	}
 	tmpSuffix, err := randomHex(s.entropy, 8)
@@ -394,7 +399,7 @@ func (s *Store) ingestArtifact(ctx context.Context, caseID string, ref domain.Ar
 		_ = os.Remove(tmp)
 		return err
 	}
-	w, err := syncDir(filepath.Dir(dest))
+	w, err = s.syncDirChecked(filepath.Dir(dest), "before_artifact_blob_directory_sync")
 	*warnings = append(*warnings, w...)
 	return err
 }
@@ -418,6 +423,42 @@ func verifyBlobFile(path, wantSHA string, wantSize int64) (bool, error) {
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 	return got == wantSHA, nil
+}
+
+func (s *Store) createStagingTransaction(caseID string) (string, []string, error) {
+	stageRoot := s.stagingDir(caseID)
+	if err := s.ensureManagedPath(stageRoot); err != nil {
+		return "", nil, err
+	}
+	for i := 0; i < 8; i++ {
+		stagingName, err := randomHex(s.entropy, 12)
+		if err != nil {
+			return "", nil, err
+		}
+		stagingRoot := filepath.Join(stageRoot, "txn-"+stagingName)
+		parent := filepath.Dir(stagingRoot)
+		if err := s.ensureUnderRoot(stagingRoot); err != nil {
+			return "", nil, err
+		}
+		if err := s.ensureManagedPath(parent); err != nil {
+			return "", nil, err
+		}
+		if err := os.Mkdir(stagingRoot, dirPerm); err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			return "", nil, err
+		}
+		warnings, err := s.syncDirChecked(parent, "before_staging_directory_sync")
+		if err != nil {
+			return stagingRoot, warnings, err
+		}
+		if err := s.ensureManagedPath(stagingRoot); err != nil {
+			return stagingRoot, warnings, err
+		}
+		return stagingRoot, warnings, nil
+	}
+	return "", nil, fmt.Errorf("casestore: unable to create exclusive staging directory in %s", stageRoot)
 }
 
 func buildCommitRecord(caseID string, seq uint64, parent *string, snapshotID, manifestSHA, committedAt, reason string) (commitRecord, []byte, error) {

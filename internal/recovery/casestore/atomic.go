@@ -102,6 +102,15 @@ func syncDir(dir string) ([]string, error) {
 	return syncDirPlatform(dir)
 }
 
+func (s *Store) syncDirChecked(dir, checkpoint string) ([]string, error) {
+	if checkpoint != "" {
+		if err := s.maybeFail(checkpoint); err != nil {
+			return nil, err
+		}
+	}
+	return syncDir(dir)
+}
+
 func syncFile(path string) error {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {

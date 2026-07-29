@@ -87,14 +87,22 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	snapRoot := s.snapshotsDir(caseID)
-	entries, err := os.ReadDir(snapRoot)
-	if err != nil && !os.IsNotExist(err) {
+	if err := s.ensureManagedPath(snapRoot); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read snapshots: "+err.Error())
+	} else if entries, err := os.ReadDir(snapRoot); err != nil && !os.IsNotExist(err) {
 		report.Status = IntegrityCorrupt
 		report.Errors = append(report.Errors, "read snapshots: "+err.Error())
 	} else if err == nil {
 		report.SnapshotCount = len(entries)
 		for _, e := range entries {
 			if !e.IsDir() {
+				continue
+			}
+			path := filepath.Join(snapRoot, e.Name())
+			if err := s.ensureManagedPath(path); err != nil {
+				report.Status = IntegrityCorrupt
+				report.Errors = append(report.Errors, "read snapshots: "+err.Error())
 				continue
 			}
 			if _, ok := committedSnaps[e.Name()]; !ok {
@@ -105,8 +113,16 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	artRoot := s.artifactsDir(caseID)
+	if err := s.ensureManagedPath(artRoot); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "walk artifacts: "+err.Error())
+		return report, nil
+	}
 	walkErr := filepath.Walk(artRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := s.ensureManagedPath(path); err != nil {
 			return err
 		}
 		if info.IsDir() {
@@ -135,22 +151,40 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	}
 
 	stageRoot := s.stagingDir(caseID)
-	if entries, err := os.ReadDir(stageRoot); err != nil && !os.IsNotExist(err) {
+	if err := s.ensureManagedPath(stageRoot); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read staging: "+err.Error())
+	} else if entries, err := os.ReadDir(stageRoot); err != nil && !os.IsNotExist(err) {
 		report.Status = IntegrityCorrupt
 		report.Errors = append(report.Errors, "read staging: "+err.Error())
 	} else if err == nil {
 		for _, e := range entries {
+			path := filepath.Join(stageRoot, e.Name())
+			if err := s.ensureManagedPath(path); err != nil {
+				report.Status = IntegrityCorrupt
+				report.Errors = append(report.Errors, "read staging: "+err.Error())
+				continue
+			}
 			report.StagingEntries = append(report.StagingEntries, e.Name())
 			report.Status = degrade(report.Status)
 		}
 	}
 
 	commitsDir := s.commitsDir(caseID)
-	if entries, err := os.ReadDir(commitsDir); err != nil && !os.IsNotExist(err) {
+	if err := s.ensureManagedPath(commitsDir); err != nil && !os.IsNotExist(err) {
+		report.Status = IntegrityCorrupt
+		report.Errors = append(report.Errors, "read commits: "+err.Error())
+	} else if entries, err := os.ReadDir(commitsDir); err != nil && !os.IsNotExist(err) {
 		report.Status = IntegrityCorrupt
 		report.Errors = append(report.Errors, "read commits: "+err.Error())
 	} else if err == nil {
 		for _, e := range entries {
+			path := filepath.Join(commitsDir, e.Name())
+			if err := s.ensureManagedPath(path); err != nil {
+				report.Status = IntegrityCorrupt
+				report.Errors = append(report.Errors, "read commits: "+err.Error())
+				continue
+			}
 			if isTempStoreName(e.Name()) {
 				report.TemporaryFiles = append(report.TemporaryFiles, "commits/"+e.Name())
 				report.Status = degrade(report.Status)
