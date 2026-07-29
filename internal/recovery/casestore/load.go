@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -151,6 +152,7 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	}
 
 	var snap Snapshot
+	snap.Normalize()
 	caseRaw, err := os.ReadFile(filepath.Join(docsDir, "case-manifest.json"))
 	if err != nil {
 		return Snapshot{}, err
@@ -161,6 +163,18 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 
 	for _, d := range manifest.Documents {
 		switch {
+		case d.RelativePath == "case-manifest.json":
+			continue
+		case d.RelativePath == "case-workflow-state.json":
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var w domain.CaseWorkflowState
+			if err := domain.DecodeAndValidateJSON(raw, &w); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			snap.WorkflowState = &w
 		case strings.HasPrefix(d.RelativePath, "targets/") && strings.HasSuffix(d.RelativePath, ".json"):
 			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
 			if err != nil {
@@ -189,11 +203,94 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 				return Snapshot{}, fmt.Errorf("%w: evidence path %q does not match evidence_id %q", ErrIntegrity, d.RelativePath, e.EvidenceID)
 			}
 			snap.EvidenceBundles = append(snap.EvidenceBundles, e)
+		case strings.HasPrefix(d.RelativePath, "findings/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var f domain.Finding
+			if err := domain.DecodeAndValidateJSON(raw, &f); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "findings/" + f.FindingID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: finding path %q does not match finding_id %q", ErrIntegrity, d.RelativePath, f.FindingID)
+			}
+			snap.Findings = append(snap.Findings, f)
+		case strings.HasPrefix(d.RelativePath, "plans/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var p domain.RepairPlan
+			if err := domain.DecodeAndValidateJSON(raw, &p); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "plans/" + p.PlanID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: plan path %q does not match plan_id %q", ErrIntegrity, d.RelativePath, p.PlanID)
+			}
+			snap.RepairPlans = append(snap.RepairPlans, p)
+		case strings.HasPrefix(d.RelativePath, "executions/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var e domain.ExecutionEvent
+			if err := domain.DecodeAndValidateJSON(raw, &e); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "executions/" + e.ExecutionID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: execution path %q does not match execution_id %q", ErrIntegrity, d.RelativePath, e.ExecutionID)
+			}
+			snap.ExecutionEvents = append(snap.ExecutionEvents, e)
+		case strings.HasPrefix(d.RelativePath, "verifications/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var v domain.VerificationReport
+			if err := domain.DecodeAndValidateJSON(raw, &v); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "verifications/" + v.VerificationID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: verification path %q does not match verification_id %q", ErrIntegrity, d.RelativePath, v.VerificationID)
+			}
+			snap.VerificationReports = append(snap.VerificationReports, v)
+		case strings.HasPrefix(d.RelativePath, "coordinator-events/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var ev domain.CoordinatorEvent
+			if err := domain.DecodeAndValidateJSON(raw, &ev); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "coordinator-events/" + ev.EventID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: coordinator-event path %q does not match event_id %q", ErrIntegrity, d.RelativePath, ev.EventID)
+			}
+			snap.CoordinatorEvents = append(snap.CoordinatorEvents, ev)
+		default:
+			return Snapshot{}, fmt.Errorf("%w: unsupported document path %q", ErrIntegrity, d.RelativePath)
 		}
 	}
 	sort.Slice(snap.Targets, func(i, j int) bool { return snap.Targets[i].TargetID < snap.Targets[j].TargetID })
 	sort.Slice(snap.EvidenceBundles, func(i, j int) bool {
 		return snap.EvidenceBundles[i].EvidenceID < snap.EvidenceBundles[j].EvidenceID
+	})
+	sort.Slice(snap.Findings, func(i, j int) bool { return snap.Findings[i].FindingID < snap.Findings[j].FindingID })
+	sort.Slice(snap.RepairPlans, func(i, j int) bool { return snap.RepairPlans[i].PlanID < snap.RepairPlans[j].PlanID })
+	sort.Slice(snap.ExecutionEvents, func(i, j int) bool {
+		return snap.ExecutionEvents[i].ExecutionID < snap.ExecutionEvents[j].ExecutionID
+	})
+	sort.Slice(snap.VerificationReports, func(i, j int) bool {
+		return snap.VerificationReports[i].VerificationID < snap.VerificationReports[j].VerificationID
+	})
+	sort.Slice(snap.CoordinatorEvents, func(i, j int) bool {
+		return snap.CoordinatorEvents[i].EventID < snap.CoordinatorEvents[j].EventID
 	})
 	if err := snap.Validate(); err != nil {
 		return Snapshot{}, err
@@ -398,22 +495,31 @@ func compareManifestArtifacts(manifest snapshotManifest, snap Snapshot) error {
 }
 
 func validateManifestDocumentPath(rel string) error {
-	if rel == "case-manifest.json" {
+	if rel == "case-manifest.json" || rel == "case-workflow-state.json" {
 		return nil
 	}
-	if strings.HasPrefix(rel, "targets/") && strings.HasSuffix(rel, ".json") {
-		id := strings.TrimSuffix(strings.TrimPrefix(rel, "targets/"), ".json")
-		if reTargetID.MatchString(id) && !strings.Contains(id, "/") {
-			return nil
-		}
-		return fmt.Errorf("%w: non-canonical target document path %q", ErrIntegrity, rel)
+	type prefixRule struct {
+		prefix string
+		re     *regexp.Regexp
+		label  string
 	}
-	if strings.HasPrefix(rel, "evidence/") && strings.HasSuffix(rel, ".json") {
-		id := strings.TrimSuffix(strings.TrimPrefix(rel, "evidence/"), ".json")
-		if reEvidenceID.MatchString(id) && !strings.Contains(id, "/") {
-			return nil
+	rules := []prefixRule{
+		{"targets/", reTargetID, "target"},
+		{"evidence/", reEvidenceID, "evidence"},
+		{"findings/", reFindingID, "finding"},
+		{"plans/", rePlanID, "plan"},
+		{"executions/", reExecutionID, "execution"},
+		{"verifications/", reVerificationID, "verification"},
+		{"coordinator-events/", reCoordinatorEventID, "coordinator-event"},
+	}
+	for _, rule := range rules {
+		if strings.HasPrefix(rel, rule.prefix) && strings.HasSuffix(rel, ".json") {
+			id := strings.TrimSuffix(strings.TrimPrefix(rel, rule.prefix), ".json")
+			if rule.re.MatchString(id) && !strings.Contains(id, "/") {
+				return nil
+			}
+			return fmt.Errorf("%w: non-canonical %s document path %q", ErrIntegrity, rule.label, rel)
 		}
-		return fmt.Errorf("%w: non-canonical evidence document path %q", ErrIntegrity, rel)
 	}
 	return fmt.Errorf("%w: non-canonical document path %q", ErrIntegrity, rel)
 }
@@ -438,32 +544,6 @@ func compareCanonicalDocuments(manifest snapshotManifest, snap Snapshot) error {
 	}
 	if caseManifestCount != 1 {
 		return fmt.Errorf("%w: expected exactly one case-manifest.json, got %d", ErrIntegrity, caseManifestCount)
-	}
-	for _, t := range snap.Targets {
-		want := "targets/" + t.TargetID + ".json"
-		found := false
-		for _, m := range manifest.Documents {
-			if m.RelativePath == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("%w: missing canonical target document %s", ErrIntegrity, want)
-		}
-	}
-	for _, e := range snap.EvidenceBundles {
-		want := "evidence/" + e.EvidenceID + ".json"
-		found := false
-		for _, m := range manifest.Documents {
-			if m.RelativePath == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("%w: missing canonical evidence document %s", ErrIntegrity, want)
-		}
 	}
 	return nil
 }

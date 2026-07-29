@@ -111,6 +111,17 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest, warning
 		}
 	}
 
+	if request.ExpectedParentCommitID != "" {
+		actualParent := ""
+		if len(chain) > 0 {
+			actualParent = chain[len(chain)-1].CommitID
+		}
+		if actualParent != request.ExpectedParentCommitID {
+			return CommitInfo{}, fmt.Errorf("%w: expected parent commit %s, actual %s",
+				ErrRevisionConflict, request.ExpectedParentCommitID, actualParent)
+		}
+	}
+
 	stagingRoot, sw, err := s.createStagingTransaction(caseID)
 	warnings = append(warnings, sw...)
 	if err != nil {

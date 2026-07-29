@@ -41,14 +41,19 @@ Honest inventory of what this repository already ships today:
   web retrieval, source capture, and a **read-only** operation boundary
   (`effexorwinpe-gateway`);
 - Win32 technician GUI shell (`effexorwinpe-shell`) for inspection and export;
+- Recovery Domain contracts 1.0.0 and legacy diagnostic-report importer;
+- Atomic Case Store library (immutable snapshots, append-only commits);
 - payload/driver manifests, safety rules, and CI.
 
 Existing executables and package paths remain legacy-compatible names. They are
 **not** deprecated-to-delete; they are current implementations that future Core
 contracts must remain compatible with.
 
-## Current experimental functionality
+## Current experimental / in-progress functionality
 
+- Recovery Coordinator library (`internal/recovery/coordinator`) — Draft PR #17:
+  create/resume Case lifecycle, Findings/plan document persistence, workflow
+  transitions for the early state subset. **No operation execution.**
 - Experimental WinPE desktop-shell spike (optional UX track; see parallel work
   such as Draft PR #12). It must not block Recovery Core design.
 - Local-only third-party shell staging, when present, remains experimental and
@@ -72,14 +77,19 @@ verified, and never driven by raw model commands.
 
 Do **not** treat these as shipped:
 
-- Effexor Recovery Core as a separate package boundary;
-- typed mutation operations / recovery coordinator;
-- case store / work-order hub;
+- Effexor Recovery Core as a complete product boundary;
+- typed mutation operations / boot repair execution;
+- Windows target resolver / boot topology;
 - Boot Doctor product vertical (planned first vertical only);
+- Recovery Agent v2 / planner / policy / approval / backup;
 - Effexor Recovery Hub;
 - Recovery Packs;
 - Effexor Recovery CLI as a distinct product surface;
+- WinPE/GUI wiring of Case Store + Coordinator;
 - guaranteed desktop-shell UX in release images.
+
+See [`docs/release/v0.1.0-program.md`](docs/release/v0.1.0-program.md) for the
+controlled v0.1.0-rc1 PR sequence.
 
 ## Repository layout
 

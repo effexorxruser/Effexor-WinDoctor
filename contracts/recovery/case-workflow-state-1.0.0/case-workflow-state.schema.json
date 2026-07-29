@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/case-workflow-state-1.0.0/case-workflow-state.schema.json",
+  "title": "Effexor Recovery case workflow state 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "case_id",
+    "state",
+    "revision",
+    "updated_at",
+    "last_transition_id"
+  ],
+  "properties": {
+    "schema_name": { "const": "case-workflow-state" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "state": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/workflowState" },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "last_transition_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/coordinatorEventId" },
+    "active_plan_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/planId" },
+    "active_execution_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/executionId" },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason_code"],
+      "properties": {
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]{1,127}$"
+        },
+        "detail_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]{1,127}$"
+        }
+      }
+    }
+  }
+}

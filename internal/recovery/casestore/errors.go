@@ -20,6 +20,9 @@ var (
 
 	// ErrPathUnsafe indicates a path escape or forbidden symlink.
 	ErrPathUnsafe = errors.New("casestore: unsafe path")
+
+	// ErrRevisionConflict indicates ExpectedParentCommitID did not match the current head.
+	ErrRevisionConflict = errors.New("casestore: revision conflict")
 )
 
 // CommitOutcomeUnknownError means the commit rename may have succeeded but a

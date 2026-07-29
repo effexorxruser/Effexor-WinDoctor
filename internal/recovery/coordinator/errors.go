@@ -1,0 +1,69 @@
+package coordinator
+
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	// ErrInvalidArgument indicates a caller-supplied value failed validation.
+	ErrInvalidArgument = errors.New("coordinator: invalid argument")
+
+	// ErrIllegalTransition indicates a workflow transition is not permitted.
+	ErrIllegalTransition = errors.New("coordinator: illegal transition")
+
+	// ErrCaseRevisionConflict indicates expected commit ID did not match latest.
+	ErrCaseRevisionConflict = errors.New("coordinator: case revision conflict")
+
+	// ErrCaseCorrupt indicates Case Store integrity prevents Coordinator progress.
+	ErrCaseCorrupt = errors.New("coordinator: case store corrupt")
+
+	// ErrMissingDocument indicates a required document for a transition is absent.
+	ErrMissingDocument = errors.New("coordinator: missing required document")
+
+	// ErrActorNotAllowed indicates the actor type may not perform the transition.
+	ErrActorNotAllowed = errors.New("coordinator: actor not allowed")
+)
+
+// RevisionConflictError carries optimistic concurrency details.
+type RevisionConflictError struct {
+	CaseID           string
+	ExpectedCommitID string
+	ActualCommitID   string
+}
+
+func (e *RevisionConflictError) Error() string {
+	return fmt.Sprintf("coordinator: case %s revision conflict: expected commit %s, actual %s",
+		e.CaseID, e.ExpectedCommitID, e.ActualCommitID)
+}
+
+func (e *RevisionConflictError) Is(target error) bool {
+	return target == ErrCaseRevisionConflict
+}
+
+// TransitionError describes an illegal or incomplete transition attempt.
+type TransitionError struct {
+	CaseID  string
+	From    string
+	To      string
+	Reason  string
+	Message string
+}
+
+func (e *TransitionError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("coordinator: %s", e.Message)
+	}
+	return fmt.Sprintf("coordinator: illegal transition %s -> %s for case %s (%s)", e.From, e.To, e.CaseID, e.Reason)
+}
+
+func (e *TransitionError) Is(target error) bool {
+	switch e.Reason {
+	case "missing_findings", "missing_plan":
+		return target == ErrMissingDocument || target == ErrIllegalTransition
+	case "actor_not_allowed":
+		return target == ErrActorNotAllowed || target == ErrIllegalTransition
+	default:
+		return target == ErrIllegalTransition
+	}
+}

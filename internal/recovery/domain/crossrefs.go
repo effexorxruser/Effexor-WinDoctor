@@ -4,12 +4,14 @@ import "fmt"
 
 // CrossRefs holds IDs that documents may reference.
 type CrossRefs struct {
-	CaseIDs      map[string]struct{}
-	TargetIDs    map[string]struct{}
-	EvidenceIDs  map[string]struct{}
-	FindingIDs   map[string]struct{}
-	ExecutionIDs map[string]struct{}
-	ArtifactIDs  map[string]struct{}
+	CaseIDs             map[string]struct{}
+	TargetIDs           map[string]struct{}
+	EvidenceIDs         map[string]struct{}
+	FindingIDs          map[string]struct{}
+	PlanIDs             map[string]struct{}
+	ExecutionIDs        map[string]struct{}
+	ArtifactIDs         map[string]struct{}
+	CoordinatorEventIDs map[string]struct{}
 }
 
 func setOf(ids ...string) map[string]struct{} {
@@ -122,6 +124,41 @@ func (v VerificationReport) ValidateVerificationRefs(refs CrossRefs) error {
 		if err := requireRef("evidence_ref", id, refs.EvidenceIDs); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ValidateWorkflowRefs checks workflow case/plan/execution refs.
+func (w CaseWorkflowState) ValidateWorkflowRefs(refs CrossRefs) error {
+	if err := w.Validate(); err != nil {
+		return err
+	}
+	if err := requireRef("case_id", w.CaseID, refs.CaseIDs); err != nil {
+		return err
+	}
+	if w.ActivePlanID != "" {
+		if err := requireRef("active_plan_id", w.ActivePlanID, refs.PlanIDs); err != nil {
+			return err
+		}
+	}
+	if w.ActiveExecutionID != "" {
+		if err := requireRef("active_execution_id", w.ActiveExecutionID, refs.ExecutionIDs); err != nil {
+			return err
+		}
+	}
+	if err := requireRef("last_transition_id", w.LastTransitionID, refs.CoordinatorEventIDs); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateCoordinatorEventRefs checks coordinator event case_id.
+func (e CoordinatorEvent) ValidateCoordinatorEventRefs(refs CrossRefs) error {
+	if err := e.Validate(); err != nil {
+		return err
+	}
+	if err := requireRef("case_id", e.CaseID, refs.CaseIDs); err != nil {
+		return err
 	}
 	return nil
 }

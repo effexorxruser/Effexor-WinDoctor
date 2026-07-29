@@ -5,19 +5,23 @@ documents and artifact bytes.
 
 Package: `internal/recovery/casestore`.
 
-This module does **not** implement a Recovery Coordinator, CLI, Findings,
-RepairPlan persistence, operations, or mutations. It does not integrate into
-the current WinPE runtime or GUI.
+This module persists Recovery Domain documents and artifacts. It does **not**
+make policy decisions, execute operations, or integrate into the current WinPE
+runtime or GUI. Orchestration belongs to the Recovery Coordinator
+([`recovery-coordinator.md`](recovery-coordinator.md)).
 
 ## Purpose
 
 - Persist `CaseManifest`, `Target[]`, and `EvidenceBundle[]`
+- Persist `Finding[]`, `RepairPlan[]`, `ExecutionEvent[]`, `VerificationReport[]`
+- Persist optional `case-workflow-state` and `coordinator-event[]` documents
 - Persist related artifact bytes
 - Publish new case state atomically
 - Load the latest committed state
 - Verify hashes, sizes, references, and the commit chain
 - Survive interrupted writes safely
 - Support idempotent retry
+- Optional `ExpectedParentCommitID` optimistic concurrency on Commit
 
 ## Recommended roots
 
@@ -40,6 +44,15 @@ All staging and final renames stay inside one store root / filesystem.
         │   └── <snapshot_id>/
         │       ├── snapshot-manifest.json
         │       └── documents/
+        │           ├── case-manifest.json
+        │           ├── case-workflow-state.json          (optional)
+        │           ├── targets/<target_id>.json
+        │           ├── evidence/<evidence_id>.json
+        │           ├── findings/<finding_id>.json
+        │           ├── plans/<plan_id>.json
+        │           ├── executions/<execution_id>.json
+        │           ├── verifications/<verification_id>.json
+        │           └── coordinator-events/<event_id>.json
         ├── artifacts/sha256/<prefix>/<sha256>
         ├── commits/%020d-<commit_id>.json
         ├── staging/
@@ -48,6 +61,10 @@ All staging and final renames stay inside one store root / filesystem.
 
 There is **no** mutable `CURRENT.json`. The highest valid append-only commit
 record is the current state.
+
+Snapshots that contain only the original Case/Target/Evidence documents remain
+readable. Empty new collections omit document files and normalize
+deterministically.
 
 ## Immutable snapshots
 
@@ -59,6 +76,8 @@ immutable on-disk directory addressed by:
 `content_sha256` is computed from the canonical manifest body **without**
 `snapshot_id` and `content_sha256`. Document entries are sorted by relative
 path. Serialization uses compact `encoding/json` (deterministic map keys).
+Snapshot-manifest schema version remains `1.0.0`; additional document path
+classes are additive and backward compatible.
 
 ## Append-only commits
 
@@ -177,12 +196,14 @@ idempotent retry, path traversal / symlink rejection.
 Out of scope: an attacker with full rewrite access to the store filesystem;
 network/cloud storage; signed commit history.
 
-## What the coordinator will consume
+## What the coordinator consumes
 
-A future Recovery Coordinator (roadmap R2 follow-on / PR #17 track) will:
+The Recovery Coordinator ([`recovery-coordinator.md`](recovery-coordinator.md)):
 
-- call `Commit` after importer / evidence collection
-- call `LoadLatest` to resume cases
-- use `Verify` / `InspectRecovery` for technician diagnostics
+- calls `Commit` after importer / analysis / plan commits
+- calls `LoadLatest` to resume cases
+- uses `Verify` for integrity before state changes
+- passes `ExpectedParentCommitID` for optimistic concurrency
 
-This PR only provides the store library.
+The store remains policy-free: it persists and verifies, it does not decide
+workflow transitions.

@@ -37,6 +37,8 @@ func TestCompileAllRecoverySchemas(t *testing.T) {
 		domain.SchemaOperationDescriptor,
 		domain.SchemaExecutionEvent,
 		domain.SchemaVerificationReport,
+		domain.SchemaCaseWorkflowState,
+		domain.SchemaCoordinatorEvent,
 	}
 	for _, name := range want {
 		if schemas[name] == nil {
@@ -60,6 +62,8 @@ func TestSchemaAcceptsValidFixtures(t *testing.T) {
 		"execution-event-started.json":  domain.SchemaExecutionEvent,
 		"execution-event-failed.json":   domain.SchemaExecutionEvent,
 		"verification-report.json":      domain.SchemaVerificationReport,
+		"case-workflow-state.json":      domain.SchemaCaseWorkflowState,
+		"coordinator-event.json":        domain.SchemaCoordinatorEvent,
 	}
 	for file, schemaName := range mapping {
 		file, schemaName := file, schemaName

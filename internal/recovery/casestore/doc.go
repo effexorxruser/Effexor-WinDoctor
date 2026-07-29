@@ -1,11 +1,12 @@
 // Package casestore implements a local crash-consistent Case Store for the
 // Effexor Recovery Platform.
 //
-// The store persists CaseManifest, Targets, and EvidenceBundles as immutable
-// snapshots, content-addressed artifact blobs, and an append-only commit
-// chain. The highest valid commit record is the current case state; there is
-// no mutable CURRENT pointer. The rename that publishes the final commit
-// record is the sole commit point.
+// The store persists CaseManifest, Targets, EvidenceBundles, Findings,
+// RepairPlans, ExecutionEvents, VerificationReports, optional workflow state,
+// and coordinator audit events as immutable snapshots, content-addressed
+// artifact blobs, and an append-only commit chain. The highest valid commit
+// record is the current case state; there is no mutable CURRENT pointer. The
+// rename that publishes the final commit record is the sole commit point.
 //
 // Artifact bytes are obtained only through ArtifactProvider. Store never opens
 // ArtifactRef.relative_path as a filesystem path.

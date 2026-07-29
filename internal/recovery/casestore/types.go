@@ -10,9 +10,15 @@ import (
 
 // Snapshot is an in-memory recovery case state ready for persistence.
 type Snapshot struct {
-	Case            domain.CaseManifest
-	Targets         []domain.Target
-	EvidenceBundles []domain.EvidenceBundle
+	Case                domain.CaseManifest
+	Targets             []domain.Target
+	EvidenceBundles     []domain.EvidenceBundle
+	Findings            []domain.Finding
+	RepairPlans         []domain.RepairPlan
+	ExecutionEvents     []domain.ExecutionEvent
+	VerificationReports []domain.VerificationReport
+	WorkflowState       *domain.CaseWorkflowState
+	CoordinatorEvents   []domain.CoordinatorEvent
 }
 
 // Options configures Store open-time dependencies.
@@ -41,9 +47,10 @@ const (
 
 // CommitRequest is the input to Store.Commit.
 type CommitRequest struct {
-	Snapshot         Snapshot
-	ArtifactProvider ArtifactProvider
-	Reason           CommitReason
+	Snapshot               Snapshot
+	ArtifactProvider       ArtifactProvider
+	Reason                 CommitReason
+	ExpectedParentCommitID string // optional optimistic concurrency token; empty skips the check
 }
 
 // CommitInfo describes a published (or idempotently reused) commit.

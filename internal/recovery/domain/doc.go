@@ -17,4 +17,6 @@ const (
 	SchemaOperationDescriptor = "operation-descriptor"
 	SchemaExecutionEvent      = "execution-event"
 	SchemaVerificationReport  = "verification-report"
+	SchemaCaseWorkflowState   = "case-workflow-state"
+	SchemaCoordinatorEvent    = "coordinator-event"
 )

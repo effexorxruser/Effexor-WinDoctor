@@ -15,8 +15,14 @@ func TestValidateManifestDocumentPath(t *testing.T) {
 	t.Parallel()
 	ok := []string{
 		"case-manifest.json",
+		"case-workflow-state.json",
 		"targets/target-disk-nvme0n1.json",
 		"evidence/evidence-bbbbbbbbbbbbbbbbbbbbbbbb.json",
+		"findings/finding-cccccccccccccccccccccccc.json",
+		"plans/plan-dddddddddddddddddddddddd.json",
+		"executions/exec-eeeeeeeeeeeeeeeeeeeeeeee.json",
+		"verifications/verify-ffffffffffffffffffffffff.json",
+		"coordinator-events/cevt-111111111111111111111111.json",
 	}
 	for _, p := range ok {
 		if err := validateManifestDocumentPath(p); err != nil {

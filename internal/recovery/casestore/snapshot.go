@@ -15,6 +15,26 @@ import (
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/importer/legacyreport"
 )
 
+// Normalize empties optional collections so nil and empty slices serialize
+// identically when preparing documents (no documents written for empty sets).
+func (s *Snapshot) Normalize() {
+	if s.Findings == nil {
+		s.Findings = []domain.Finding{}
+	}
+	if s.RepairPlans == nil {
+		s.RepairPlans = []domain.RepairPlan{}
+	}
+	if s.ExecutionEvents == nil {
+		s.ExecutionEvents = []domain.ExecutionEvent{}
+	}
+	if s.VerificationReports == nil {
+		s.VerificationReports = []domain.VerificationReport{}
+	}
+	if s.CoordinatorEvents == nil {
+		s.CoordinatorEvents = []domain.CoordinatorEvent{}
+	}
+}
+
 // Validate checks Snapshot domain invariants before commit.
 func (s Snapshot) Validate() error {
 	if err := s.Case.Validate(); err != nil {
@@ -70,16 +90,7 @@ func (s Snapshot) Validate() error {
 
 	evidenceIDs := make(map[string]struct{}, len(s.EvidenceBundles))
 	artifactByID := make(map[string]domain.ArtifactRef)
-	refs := domain.NewCrossRefs(
-		[]string{s.Case.CaseID},
-		keys(targetIDs),
-		nil, nil, nil, nil,
-	)
-
 	for i, e := range s.EvidenceBundles {
-		if err := e.ValidateEvidenceRefs(refs); err != nil {
-			return fmt.Errorf("evidence_bundles[%d]: %w", i, err)
-		}
 		if e.CaseID != s.Case.CaseID {
 			return fmt.Errorf("%w: evidence_bundles[%d].case_id mismatch", ErrInvalidArgument, i)
 		}
@@ -100,15 +111,127 @@ func (s Snapshot) Validate() error {
 			}
 		}
 	}
+
+	findingIDs := make(map[string]struct{}, len(s.Findings))
+	for _, f := range s.Findings {
+		if _, ok := findingIDs[f.FindingID]; ok {
+			return fmt.Errorf("%w: duplicate finding_id %q", ErrInvalidArgument, f.FindingID)
+		}
+		findingIDs[f.FindingID] = struct{}{}
+	}
+
+	planIDs := make(map[string]struct{}, len(s.RepairPlans))
+	for _, p := range s.RepairPlans {
+		if _, ok := planIDs[p.PlanID]; ok {
+			return fmt.Errorf("%w: duplicate plan_id %q", ErrInvalidArgument, p.PlanID)
+		}
+		planIDs[p.PlanID] = struct{}{}
+	}
+
+	executionIDs := make(map[string]struct{}, len(s.ExecutionEvents))
+	for _, e := range s.ExecutionEvents {
+		if _, ok := executionIDs[e.ExecutionID]; ok {
+			return fmt.Errorf("%w: duplicate execution_id %q", ErrInvalidArgument, e.ExecutionID)
+		}
+		executionIDs[e.ExecutionID] = struct{}{}
+	}
+
+	verificationIDs := make(map[string]struct{}, len(s.VerificationReports))
+	for _, v := range s.VerificationReports {
+		if _, ok := verificationIDs[v.VerificationID]; ok {
+			return fmt.Errorf("%w: duplicate verification_id %q", ErrInvalidArgument, v.VerificationID)
+		}
+		verificationIDs[v.VerificationID] = struct{}{}
+	}
+
+	eventIDs := make(map[string]struct{}, len(s.CoordinatorEvents))
+	for _, ev := range s.CoordinatorEvents {
+		if _, ok := eventIDs[ev.EventID]; ok {
+			return fmt.Errorf("%w: duplicate coordinator event_id %q", ErrInvalidArgument, ev.EventID)
+		}
+		eventIDs[ev.EventID] = struct{}{}
+	}
+
+	refs := domain.CrossRefs{
+		CaseIDs:             setOf(s.Case.CaseID),
+		TargetIDs:           targetIDs,
+		EvidenceIDs:         evidenceIDs,
+		FindingIDs:          findingIDs,
+		PlanIDs:             planIDs,
+		ExecutionIDs:        executionIDs,
+		ArtifactIDs:         artifactIDSet(artifactByID),
+		CoordinatorEventIDs: eventIDs,
+	}
+
+	for i, e := range s.EvidenceBundles {
+		if err := e.ValidateEvidenceRefs(refs); err != nil {
+			return fmt.Errorf("evidence_bundles[%d]: %w", i, err)
+		}
+	}
+	for i, f := range s.Findings {
+		if err := f.ValidateFindingRefs(refs); err != nil {
+			return fmt.Errorf("findings[%d]: %w", i, err)
+		}
+		if f.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: findings[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, p := range s.RepairPlans {
+		if err := p.ValidatePlanRefs(refs); err != nil {
+			return fmt.Errorf("repair_plans[%d]: %w", i, err)
+		}
+		if p.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: repair_plans[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, e := range s.ExecutionEvents {
+		if err := e.ValidateExecutionRefs(refs); err != nil {
+			return fmt.Errorf("execution_events[%d]: %w", i, err)
+		}
+		if e.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: execution_events[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, v := range s.VerificationReports {
+		if err := v.ValidateVerificationRefs(refs); err != nil {
+			return fmt.Errorf("verification_reports[%d]: %w", i, err)
+		}
+		if v.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: verification_reports[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, ev := range s.CoordinatorEvents {
+		if err := ev.ValidateCoordinatorEventRefs(refs); err != nil {
+			return fmt.Errorf("coordinator_events[%d]: %w", i, err)
+		}
+		if ev.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: coordinator_events[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	if s.WorkflowState != nil {
+		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
+			return fmt.Errorf("workflow_state: %w", err)
+		}
+		if s.WorkflowState.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: workflow_state.case_id mismatch", ErrInvalidArgument)
+		}
+	}
 	return nil
 }
 
-func keys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+func setOf(ids ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
 	}
-	sort.Strings(out)
+	return out
+}
+
+func artifactIDSet(m map[string]domain.ArtifactRef) map[string]struct{} {
+	out := make(map[string]struct{}, len(m))
+	for id := range m {
+		out[id] = struct{}{}
+	}
 	return out
 }
 
@@ -125,9 +248,14 @@ func artifactRefsEqual(a, b domain.ArtifactRef) bool {
 // SnapshotFromImporterResult converts a legacy importer Result into a Snapshot.
 func SnapshotFromImporterResult(result legacyreport.Result) Snapshot {
 	return Snapshot{
-		Case:            result.Case,
-		Targets:         append([]domain.Target(nil), result.Targets...),
-		EvidenceBundles: append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
+		Case:                result.Case,
+		Targets:             append([]domain.Target(nil), result.Targets...),
+		EvidenceBundles:     append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
+		Findings:            []domain.Finding{},
+		RepairPlans:         []domain.RepairPlan{},
+		ExecutionEvents:     []domain.ExecutionEvent{},
+		VerificationReports: []domain.VerificationReport{},
+		CoordinatorEvents:   []domain.CoordinatorEvent{},
 	}
 }
 
@@ -140,6 +268,7 @@ type preparedDocument struct {
 }
 
 func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
+	snap.Normalize()
 	var docs []preparedDocument
 
 	caseBytes, err := marshalCanonical(snap.Case)
@@ -147,6 +276,14 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 		return nil, fmt.Errorf("marshal case-manifest: %w", err)
 	}
 	docs = append(docs, documentEntry("case-manifest.json", caseBytes))
+
+	if snap.WorkflowState != nil {
+		raw, err := marshalCanonical(snap.WorkflowState)
+		if err != nil {
+			return nil, fmt.Errorf("marshal case-workflow-state: %w", err)
+		}
+		docs = append(docs, documentEntry("case-workflow-state.json", raw))
+	}
 
 	targets := append([]domain.Target(nil), snap.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].TargetID < targets[j].TargetID })
@@ -172,6 +309,71 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 			return nil, fmt.Errorf("marshal evidence %s: %w", e.EvidenceID, err)
 		}
 		docs = append(docs, documentEntry("evidence/"+e.EvidenceID+".json", raw))
+	}
+
+	findings := append([]domain.Finding(nil), snap.Findings...)
+	sort.Slice(findings, func(i, j int) bool { return findings[i].FindingID < findings[j].FindingID })
+	for _, f := range findings {
+		if err := validateFindingID(f.FindingID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(f)
+		if err != nil {
+			return nil, fmt.Errorf("marshal finding %s: %w", f.FindingID, err)
+		}
+		docs = append(docs, documentEntry("findings/"+f.FindingID+".json", raw))
+	}
+
+	plans := append([]domain.RepairPlan(nil), snap.RepairPlans...)
+	sort.Slice(plans, func(i, j int) bool { return plans[i].PlanID < plans[j].PlanID })
+	for _, p := range plans {
+		if err := validatePlanID(p.PlanID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(p)
+		if err != nil {
+			return nil, fmt.Errorf("marshal plan %s: %w", p.PlanID, err)
+		}
+		docs = append(docs, documentEntry("plans/"+p.PlanID+".json", raw))
+	}
+
+	execs := append([]domain.ExecutionEvent(nil), snap.ExecutionEvents...)
+	sort.Slice(execs, func(i, j int) bool { return execs[i].ExecutionID < execs[j].ExecutionID })
+	for _, e := range execs {
+		if err := validateExecutionID(e.ExecutionID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(e)
+		if err != nil {
+			return nil, fmt.Errorf("marshal execution %s: %w", e.ExecutionID, err)
+		}
+		docs = append(docs, documentEntry("executions/"+e.ExecutionID+".json", raw))
+	}
+
+	verifs := append([]domain.VerificationReport(nil), snap.VerificationReports...)
+	sort.Slice(verifs, func(i, j int) bool { return verifs[i].VerificationID < verifs[j].VerificationID })
+	for _, v := range verifs {
+		if err := validateVerificationID(v.VerificationID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal verification %s: %w", v.VerificationID, err)
+		}
+		docs = append(docs, documentEntry("verifications/"+v.VerificationID+".json", raw))
+	}
+
+	events := append([]domain.CoordinatorEvent(nil), snap.CoordinatorEvents...)
+	sort.Slice(events, func(i, j int) bool { return events[i].EventID < events[j].EventID })
+	for _, ev := range events {
+		if err := validateCoordinatorEventID(ev.EventID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(ev)
+		if err != nil {
+			return nil, fmt.Errorf("marshal coordinator-event %s: %w", ev.EventID, err)
+		}
+		docs = append(docs, documentEntry("coordinator-events/"+ev.EventID+".json", raw))
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].RelativePath < docs[j].RelativePath })
