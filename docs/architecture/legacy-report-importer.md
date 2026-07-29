@@ -151,6 +151,8 @@ compilation remains a test-only concern.
 
 ## Next Case Store iteration
 
-A future Case Store layer should persist these documents (and later Findings /
-plans) as case-local artifacts. This importer only produces in-memory Result
-values for that store to consume.
+The Case Store library (`internal/recovery/casestore`) persists importer
+`Result` values as immutable snapshots with an append-only commit chain.
+See [`case-store.md`](./case-store.md). The importer itself remains a pure
+in-memory transform; wiring Commit into WinPE/GUI is a later coordinator
+step.

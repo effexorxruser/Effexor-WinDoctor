@@ -55,8 +55,11 @@ flowchart LR
 
 Today’s implemented path is concentrated on **Evidence** and conservative
 **Finding** / read-only next steps, plus optional gateway-assisted findings that
-remain non-authoritative. Mutation, backup, verification, Boot Doctor, case
-store, and coordinator are **not** implemented as platform modules yet.
+remain non-authoritative. Recovery domain contracts and a legacy
+diagnostic-report importer exist as libraries. A local **Case Store** library
+(immutable snapshots + append-only commits) is in progress and is not yet
+wired into WinPE runtime or GUI. Mutation, backup, verification, Boot Doctor,
+and Recovery Coordinator are **not** shipped as platform modules yet.
 
 ## Component mapping (legacy-compatible)
 
