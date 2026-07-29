@@ -2,9 +2,56 @@ package casestore
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+// rerouteCommitParent rewrites a commit record so its parent_commit_id points
+// to newParentID. It recomputes commit_id and renames the file to match,
+// producing a record that passes validateCommitRecord and filename checks but
+// breaks the chain link.  Returns the new file path.
+func rerouteCommitParent(t *testing.T, st *Store, caseID string, seq uint64, oldCommitID, newParentID string) string {
+	t.Helper()
+	dir := st.commitsDir(caseID)
+	oldName := commitFileName(seq, oldCommitID)
+	oldPath := filepath.Join(dir, oldName)
+
+	raw, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec commitRecord
+	if err := decodeStrict(raw, &rec); err != nil {
+		t.Fatal(err)
+	}
+
+	rec.ParentCommitID = &newParentID
+
+	newID, err := computeCommitIDFromRecord(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.CommitID = newID
+
+	out, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newName := commitFileName(rec.Sequence, rec.CommitID)
+	newPath := filepath.Join(dir, newName)
+	if err := os.WriteFile(newPath, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if newName != oldName {
+		if err := os.Remove(oldPath); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return newPath
+}
 
 func TestInspectRecoveryKeepsValidPrefixOnBrokenTail(t *testing.T) {
 	t.Parallel()
@@ -16,11 +63,9 @@ func TestInspectRecoveryKeepsValidPrefixOnBrokenTail(t *testing.T) {
 	snap3 := mutateCaseUpdatedAt(snap, "2026-07-27T16:00:00Z")
 	c3 := mustCommit(t, st, snap3, nil, CommitReasonCaseSnapshot)
 
-	// Make the third commit parseable but chain-invalid so the valid prefix is c1+c2.
-	badPath := filepath.Join(st.commitsDir(snap.Case.CaseID), commitFileName(c3.Sequence, c3.CommitID))
-	tamperCommitField(t, badPath, func(m map[string]any) {
-		m["parent_commit_id"] = c1.CommitID
-	})
+	// Reroute c3's parent from c2 to c1: record stays parseable and passes
+	// filename/content validation but breaks the chain link.
+	badPath := rerouteCommitParent(t, st, snap.Case.CaseID, c3.Sequence, c3.CommitID, c1.CommitID)
 
 	ins, err := st.InspectRecovery(context.Background(), snap.Case.CaseID)
 	if err != nil {
