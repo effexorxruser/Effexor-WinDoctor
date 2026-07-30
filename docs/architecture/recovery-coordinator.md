@@ -108,14 +108,36 @@ Persisted workflow-state semantics are also validated centrally:
 ### Event-specific refs
 
 Audit events reference only documents relevant to that command (not the full
-latest document set):
+latest document set). Snapshot validation requires exact ref sets:
 
-| Event | Refs |
-|-------|------|
-| CreateCase / AdoptLegacyCase | Case, Targets, Evidence, workflow singleton |
-| CommitAnalysis | Case, Findings from this command, their Evidence/Target refs, workflow singleton |
-| CommitPlan | Case, Plan, plan.finding_refs, step target IDs, workflow singleton |
+| Event | Exact refs |
+|-------|------------|
+| CreateCase / AdoptLegacyCase | Case ID, workflow singleton, **every** Target ID, **every** EvidenceBundle ID |
+| CommitAnalysis | Case, Findings introduced by this command, their Evidence/Target refs, workflow singleton |
+| CommitPlan | Case, exactly one Plan, plan.finding_refs, step target IDs, workflow singleton |
 | Fail / Cancel | Case, workflow singleton, active plan ID when present |
+
+Coordinator-event IDs and self-references are forbidden in
+`referenced_document_ids`.
+
+### Lifecycle provenance
+
+Every persisted Finding ID must appear in at least one `analysis_committed`
+event. Every RepairPlan ID must appear in a `plan_committed` event. Mentions
+from an unsuitable event type do not count as provenance.
+
+PR #17 state emptiness:
+
+| State | Allowed lifecycle docs |
+|-------|------------------------|
+| evidence_collected | none (Findings/Plans/Executions/Verifications empty) |
+| analyzed | Findings only (all audited); Plans empty |
+| plan_proposed | audited Findings + audited Plans; `active_plan_id` from last `plan_committed` |
+| failed / cancelled | historical audited Findings/Plans only |
+
+`ExecutionEvent` and `VerificationReport` path classes remain for future PRs,
+but PR #17 Case Store commit rejects them until matching workflow transitions
+and audit event types exist.
 
 ### Append-only Findings
 

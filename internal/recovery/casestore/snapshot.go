@@ -313,7 +313,15 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 	for rev := uint64(2); rev <= ws.Revision; rev++ {
 		prev := byRev[rev-1]
 		curr := byRev[rev]
-		if curr.OccurredAt < prev.OccurredAt {
+		prevAt, err := time.Parse(time.RFC3339, prev.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("%w: workflow revision %d occurred_at: %v", ErrInvalidArgument, rev-1, err)
+		}
+		currAt, err := time.Parse(time.RFC3339, curr.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("%w: workflow revision %d occurred_at: %v", ErrInvalidArgument, rev, err)
+		}
+		if currAt.Before(prevAt) {
 			return fmt.Errorf("%w: workflow revision %d occurred_at %q precedes revision %d occurred_at %q",
 				ErrInvalidArgument, rev, curr.OccurredAt, rev-1, prev.OccurredAt)
 		}
@@ -357,6 +365,80 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 	if err := domain.ValidatePR17WorkflowStateSemantics(*ws, s.Case, maxEv); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
+	if err := validateLifecycleProvenance(s); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	return nil
+}
+
+func validateLifecycleProvenance(s Snapshot) error {
+	if len(s.ExecutionEvents) > 0 {
+		return fmt.Errorf("execution events are not implemented in PR #17")
+	}
+	if len(s.VerificationReports) > 0 {
+		return fmt.Errorf("verification reports are not implemented in PR #17")
+	}
+	if s.WorkflowState == nil {
+		return nil
+	}
+
+	auditedFindings := make(map[string]struct{})
+	auditedPlans := make(map[string]struct{})
+	for _, ev := range s.CoordinatorEvents {
+		switch ev.EventType {
+		case domain.EventAnalysisCommitted:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findFindingByID(s.Findings, id) != nil {
+					auditedFindings[id] = struct{}{}
+				}
+			}
+		case domain.EventPlanCommitted:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findPlanByID(s.RepairPlans, id) != nil {
+					auditedPlans[id] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, f := range s.Findings {
+		if _, ok := auditedFindings[f.FindingID]; !ok {
+			return fmt.Errorf("finding %q lacks analysis_committed provenance", f.FindingID)
+		}
+	}
+	for _, p := range s.RepairPlans {
+		if _, ok := auditedPlans[p.PlanID]; !ok {
+			return fmt.Errorf("plan %q lacks plan_committed provenance", p.PlanID)
+		}
+	}
+
+	switch s.WorkflowState.State {
+	case domain.WorkflowEvidenceCollected:
+		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 {
+			return fmt.Errorf("state %q must not contain findings or repair plans", s.WorkflowState.State)
+		}
+	case domain.WorkflowAnalyzed:
+		if len(s.Findings) == 0 {
+			return fmt.Errorf("state %q requires at least one finding", s.WorkflowState.State)
+		}
+		if len(s.RepairPlans) > 0 {
+			return fmt.Errorf("state %q must not contain repair plans", s.WorkflowState.State)
+		}
+	case domain.WorkflowPlanProposed:
+		if len(s.Findings) == 0 {
+			return fmt.Errorf("state %q requires audited findings", s.WorkflowState.State)
+		}
+		if len(s.RepairPlans) == 0 {
+			return fmt.Errorf("state %q requires audited repair plans", s.WorkflowState.State)
+		}
+		if s.WorkflowState.ActivePlanID == "" {
+			return fmt.Errorf("state %q requires active_plan_id", s.WorkflowState.State)
+		}
+		if findPlanByID(s.RepairPlans, s.WorkflowState.ActivePlanID) == nil {
+			return fmt.Errorf("active_plan_id %q missing from repair plans", s.WorkflowState.ActivePlanID)
+		}
+	case domain.WorkflowFailed, domain.WorkflowCancelled:
+		// Existing findings/plans already require provenance above.
+	}
 	return nil
 }
 
@@ -377,23 +459,9 @@ func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.Coordinato
 	}
 	switch ev.EventType {
 	case domain.EventCaseCreated, domain.EventLegacyCaseAdopted:
-		var targets, evidence int
-		for _, id := range ev.ReferencedDocumentIDs {
-			switch {
-			case id == s.Case.CaseID || id == domain.DocumentIDCaseWorkflowState:
-			case containsTargetID(s.Targets, id):
-				targets++
-			case containsEvidenceID(s.EvidenceBundles, id):
-				evidence++
-			default:
-				return fmt.Errorf("event %s may reference only case/workflow/target/evidence ids", ev.EventType)
-			}
-		}
-		if targets == 0 {
-			return fmt.Errorf("event %s requires at least one target ref", ev.EventType)
-		}
-		if evidence == 0 {
-			return fmt.Errorf("event %s requires at least one evidence ref", ev.EventType)
+		want := createOrAdoptReferenceSet(s)
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("%s refs: %w", ev.EventType, err)
 		}
 	case domain.EventAnalysisCommitted:
 		want, err := analysisReferenceClosure(s, ev)
@@ -421,6 +489,17 @@ func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.Coordinato
 		}
 	}
 	return nil
+}
+
+func createOrAdoptReferenceSet(s Snapshot) []string {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	for _, t := range s.Targets {
+		want = append(want, t.TargetID)
+	}
+	for _, e := range s.EvidenceBundles {
+		want = append(want, e.EvidenceID)
+	}
+	return uniqueSortedStrings(want)
 }
 
 func analysisReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
@@ -454,7 +533,8 @@ func planReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, err
 		return nil, fmt.Errorf("plan_committed requires exactly one plan ref")
 	}
 	plan := plans[0]
-	if s.WorkflowState == nil || s.WorkflowState.ActivePlanID != plan.PlanID {
+	if s.WorkflowState != nil && s.WorkflowState.State == domain.WorkflowPlanProposed &&
+		s.WorkflowState.ActivePlanID != plan.PlanID {
 		return nil, fmt.Errorf("plan_committed active_plan_id must match referenced plan")
 	}
 	want = append(want, plan.PlanID)
@@ -499,24 +579,6 @@ func uniqueSortedStrings(values []string) []string {
 func containsRef(values []string, want string) bool {
 	for _, v := range values {
 		if v == want {
-			return true
-		}
-	}
-	return false
-}
-
-func containsTargetID(values []domain.Target, want string) bool {
-	for _, v := range values {
-		if v.TargetID == want {
-			return true
-		}
-	}
-	return false
-}
-
-func containsEvidenceID(values []domain.EvidenceBundle, want string) bool {
-	for _, v := range values {
-		if v.EvidenceID == want {
 			return true
 		}
 	}

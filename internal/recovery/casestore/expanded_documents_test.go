@@ -2,6 +2,7 @@ package casestore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -118,6 +119,16 @@ func sampleWorkflow() *domain.CaseWorkflowState {
 }
 
 func enrichedSnapshot(t *testing.T) Snapshot {
+	t.Helper()
+	snap := baseSnapshot(t)
+	snap.CoordinatorEvents = []domain.CoordinatorEvent{sampleCoordinatorEvent()}
+	snap.WorkflowState = sampleWorkflow()
+	return snap
+}
+
+// allDocumentTypesSnapshot builds documents for prepareDocuments/canonical-hash
+// tests only. It is intentionally not a valid PR #17 workflow snapshot.
+func allDocumentTypesSnapshot(t *testing.T) Snapshot {
 	t.Helper()
 	snap := baseSnapshot(t)
 	snap.Findings = []domain.Finding{sampleFinding()}
@@ -247,6 +258,78 @@ func failedSnapshot(t *testing.T) Snapshot {
 	return snap
 }
 
+func cancelledSnapshot(t *testing.T) Snapshot {
+	t.Helper()
+	snap := plannedSnapshot(t)
+	snap.Case.CurrentState = domain.CaseStateCancelled
+	snap.Case.UpdatedAt = "2026-07-27T12:08:00Z"
+	snap.CoordinatorEvents = append(snap.CoordinatorEvents, domain.CoordinatorEvent{
+		SchemaName:       domain.SchemaCoordinatorEvent,
+		SchemaVersion:    domain.SchemaVersion,
+		EventID:          "cevt-555555555555555555555555",
+		CaseID:           snap.Case.CaseID,
+		EventType:        domain.EventCaseCancelled,
+		ActorType:        domain.ActorTechnician,
+		OccurredAt:       "2026-07-27T12:08:00Z",
+		PreviousState:    string(domain.WorkflowPlanProposed),
+		NextState:        string(domain.WorkflowCancelled),
+		ExpectedCommitID: "commit-444444444444444444444444",
+		WorkflowRevision: 4,
+		ReferencedDocumentIDs: []string{
+			snap.Case.CaseID,
+			domain.DocumentIDCaseWorkflowState,
+			samplePlan().PlanID,
+		},
+		ReasonCode: "case_cancelled",
+	})
+	snap.WorkflowState = &domain.CaseWorkflowState{
+		SchemaName:       domain.SchemaCaseWorkflowState,
+		SchemaVersion:    domain.SchemaVersion,
+		CaseID:           snap.Case.CaseID,
+		State:            domain.WorkflowCancelled,
+		Revision:         4,
+		UpdatedAt:        snap.Case.UpdatedAt,
+		LastTransitionID: "cevt-555555555555555555555555",
+		ActivePlanID:     samplePlan().PlanID,
+	}
+	return snap
+}
+
+func secondTarget() domain.Target {
+	return domain.Target{
+		SchemaName:    domain.SchemaTarget,
+		SchemaVersion: domain.SchemaVersion,
+		TargetID:      "target-disk-nvme0n2",
+		TargetType:    "disk",
+		DiscoveredAt:  "2026-07-27T12:00:00Z",
+		DisplayName:   "NVMe Disk 1",
+		StableIdentity: map[string]string{
+			"disk_serial": "SN-TEST-002",
+		},
+		RuntimeLocators: map[string]string{"winpe_disk_number": "1"},
+		Capabilities:    []string{"read_sectors"},
+		Limitations:     []string{},
+	}
+}
+
+func secondEvidence() domain.EvidenceBundle {
+	return domain.EvidenceBundle{
+		SchemaName:       domain.SchemaEvidenceBundle,
+		SchemaVersion:    domain.SchemaVersion,
+		EvidenceID:       "evidence-cccccccccccccccccccccccc",
+		CaseID:           "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+		TargetID:         "target-disk-nvme0n2",
+		Collector:        "effexor-recovery-probe",
+		CollectorVersion: "0.1.0",
+		CapturedAt:       "2026-07-27T12:02:00Z",
+		SourceStatus:     "ok",
+		FactsSchema:      "facts.disk-inventory.v1",
+		Facts:            json.RawMessage(`{"partition_count":2,"has_esp":false}`),
+		Artifacts:        []domain.ArtifactRef{},
+		Limitations:      []string{},
+	}
+}
+
 func TestLegacySnapshotWithoutNewDocumentsLoads(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
@@ -272,7 +355,7 @@ func TestLegacySnapshotWithoutNewDocumentsLoads(t *testing.T) {
 func TestExpandedDocumentsRoundTrip(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	snap := enrichedSnapshot(t)
+	snap := plannedSnapshot(t)
 	info := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
 	loaded, got, err := st.LoadLatest(context.Background(), snap.Case.CaseID)
 	if err != nil {
@@ -287,19 +370,44 @@ func TestExpandedDocumentsRoundTrip(t *testing.T) {
 	if len(loaded.RepairPlans) != 1 || loaded.RepairPlans[0].PlanID != samplePlan().PlanID {
 		t.Fatalf("plans: %+v", loaded.RepairPlans)
 	}
-	if len(loaded.ExecutionEvents) != 1 || loaded.ExecutionEvents[0].ExecutionID != sampleExecution().ExecutionID {
-		t.Fatalf("executions: %+v", loaded.ExecutionEvents)
+	if len(loaded.ExecutionEvents) != 0 || len(loaded.VerificationReports) != 0 {
+		t.Fatalf("unexpected execution/verification docs: %#v %#v", loaded.ExecutionEvents, loaded.VerificationReports)
 	}
-	if len(loaded.VerificationReports) != 1 || loaded.VerificationReports[0].VerificationID != sampleVerification().VerificationID {
-		t.Fatalf("verifications: %+v", loaded.VerificationReports)
-	}
-	if len(loaded.CoordinatorEvents) != 1 || loaded.CoordinatorEvents[0].EventID != sampleCoordinatorEvent().EventID {
+	if len(loaded.CoordinatorEvents) != 3 {
 		t.Fatalf("events: %+v", loaded.CoordinatorEvents)
 	}
-	if loaded.WorkflowState == nil || loaded.WorkflowState.State != domain.WorkflowEvidenceCollected {
+	if loaded.WorkflowState == nil || loaded.WorkflowState.State != domain.WorkflowPlanProposed {
 		t.Fatalf("workflow: %+v", loaded.WorkflowState)
 	}
 	docs, err := prepareDocuments(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := map[string]struct{}{
+		"case-manifest.json":                                    {},
+		"case-workflow-state.json":                              {},
+		"targets/target-disk-nvme0n1.json":                      {},
+		"evidence/evidence-bbbbbbbbbbbbbbbbbbbbbbbb.json":       {},
+		"findings/finding-cccccccccccccccccccccccc.json":        {},
+		"plans/plan-dddddddddddddddddddddddd.json":              {},
+		"coordinator-events/cevt-111111111111111111111111.json": {},
+		"coordinator-events/cevt-222222222222222222222222.json": {},
+		"coordinator-events/cevt-333333333333333333333333.json": {},
+	}
+	if len(docs) != len(wantPaths) {
+		t.Fatalf("doc count %d want %d", len(docs), len(wantPaths))
+	}
+	for _, d := range docs {
+		if _, ok := wantPaths[d.RelativePath]; !ok {
+			t.Fatalf("unexpected path %s", d.RelativePath)
+		}
+	}
+}
+
+func TestExpandedDocumentPathsCanonical(t *testing.T) {
+	t.Parallel()
+	snap := allDocumentTypesSnapshot(t)
+	docs, err := prepareDocuments(snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +434,7 @@ func TestExpandedDocumentsRoundTrip(t *testing.T) {
 
 func TestDeterministicSnapshotHashWithExpandedDocs(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
+	snap := allDocumentTypesSnapshot(t)
 	docsA, err := prepareDocuments(snap)
 	if err != nil {
 		t.Fatal(err)
@@ -350,7 +458,7 @@ func TestDeterministicSnapshotHashWithExpandedDocs(t *testing.T) {
 
 func TestDuplicateFindingIDRejected(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
+	snap := analyzedSnapshot(t)
 	snap.Findings = append(snap.Findings, sampleFinding())
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected duplicate finding rejection")
@@ -359,7 +467,7 @@ func TestDuplicateFindingIDRejected(t *testing.T) {
 
 func TestBrokenFindingEvidenceRefRejected(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
+	snap := analyzedSnapshot(t)
 	snap.Findings[0].EvidenceRefs = []string{"evidence-000000000000000000000000"}
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected broken evidence ref rejection")
@@ -368,7 +476,7 @@ func TestBrokenFindingEvidenceRefRejected(t *testing.T) {
 
 func TestBrokenFindingTargetRefRejected(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
+	snap := analyzedSnapshot(t)
 	snap.Findings[0].AffectedTargetIDs = []string{"target-missing-disk-01"}
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected broken target ref rejection")
@@ -377,28 +485,28 @@ func TestBrokenFindingTargetRefRejected(t *testing.T) {
 
 func TestBrokenRepairPlanRefRejected(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
+	snap := plannedSnapshot(t)
 	snap.RepairPlans[0].FindingRefs = []string{"finding-000000000000000000000000"}
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected broken plan finding ref rejection")
 	}
 }
 
-func TestBrokenExecutionEventRefRejected(t *testing.T) {
+func TestExecutionEventsRejectedInPR17(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
-	snap.ExecutionEvents[0].TargetID = "target-missing-disk-01"
+	snap := analyzedSnapshot(t)
+	snap.ExecutionEvents = []domain.ExecutionEvent{sampleExecution()}
 	if err := snap.Validate(); err == nil {
-		t.Fatal("expected broken execution target rejection")
+		t.Fatal("expected execution event rejection")
 	}
 }
 
-func TestBrokenVerificationReportRefRejected(t *testing.T) {
+func TestVerificationReportsRejectedInPR17(t *testing.T) {
 	t.Parallel()
-	snap := enrichedSnapshot(t)
-	snap.VerificationReports[0].ExecutionID = "exec-000000000000000000000000"
+	snap := analyzedSnapshot(t)
+	snap.VerificationReports = []domain.VerificationReport{sampleVerification()}
 	if err := snap.Validate(); err == nil {
-		t.Fatal("expected broken verification execution ref rejection")
+		t.Fatal("expected verification report rejection")
 	}
 }
 
@@ -414,7 +522,7 @@ func TestIncompatibleWorkflowManifestRejected(t *testing.T) {
 func TestFilenameIDMismatchRejectedOnLoad(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	snap := enrichedSnapshot(t)
+	snap := plannedSnapshot(t)
 	info := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
 	newID, manifestSHA := tamperSnapshotDocument(t, st, snap.Case.CaseID, info.SnapshotID, "findings/finding-cccccccccccccccccccccccc.json", func(raw []byte) []byte {
 		// Keep bytes valid JSON finding but change finding_id so path != id.
@@ -613,4 +721,182 @@ func TestTerminalEventExtraRefRejected(t *testing.T) {
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected terminal extra ref rejection")
 	}
+}
+
+func TestCreateAdoptRefsExactSet(t *testing.T) {
+	t.Parallel()
+	t.Run("full set accepted", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		snap.Targets = append(snap.Targets, secondTarget())
+		snap.Case.TargetIDs = append(snap.Case.TargetIDs, secondTarget().TargetID)
+		snap.EvidenceBundles = append(snap.EvidenceBundles, secondEvidence())
+		snap.CoordinatorEvents[0].ReferencedDocumentIDs = []string{
+			snap.Case.CaseID,
+			snap.Targets[0].TargetID,
+			snap.Targets[1].TargetID,
+			snap.EvidenceBundles[0].EvidenceID,
+			snap.EvidenceBundles[1].EvidenceID,
+			domain.DocumentIDCaseWorkflowState,
+		}
+		if err := snap.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("missing target", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		snap.Targets = append(snap.Targets, secondTarget())
+		snap.Case.TargetIDs = append(snap.Case.TargetIDs, secondTarget().TargetID)
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected missing target ref rejection")
+		}
+	})
+	t.Run("missing evidence", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		extra := secondEvidence()
+		extra.TargetID = snap.Targets[0].TargetID
+		snap.EvidenceBundles = append(snap.EvidenceBundles, extra)
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected missing evidence ref rejection")
+		}
+	})
+	t.Run("extra finding", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		snap.CoordinatorEvents[0].ReferencedDocumentIDs = append(
+			snap.CoordinatorEvents[0].ReferencedDocumentIDs,
+			sampleFinding().FindingID,
+		)
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected extra finding ref rejection")
+		}
+	})
+	t.Run("extra plan", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		snap.CoordinatorEvents[0].ReferencedDocumentIDs = append(
+			snap.CoordinatorEvents[0].ReferencedDocumentIDs,
+			samplePlan().PlanID,
+		)
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected extra plan ref rejection")
+		}
+	})
+}
+
+func TestLifecycleProvenanceCoverage(t *testing.T) {
+	t.Parallel()
+	t.Run("injected finding without analysis", func(t *testing.T) {
+		t.Parallel()
+		snap := enrichedSnapshot(t)
+		snap.Findings = []domain.Finding{sampleFinding()}
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected unaudited finding rejection")
+		}
+	})
+	t.Run("injected plan without plan event", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.RepairPlans = []domain.RepairPlan{samplePlan()}
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected unaudited plan rejection")
+		}
+	})
+	t.Run("execution in analyzed", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.ExecutionEvents = []domain.ExecutionEvent{sampleExecution()}
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected execution rejection")
+		}
+	})
+	t.Run("verification in plan_proposed", func(t *testing.T) {
+		t.Parallel()
+		snap := plannedSnapshot(t)
+		snap.VerificationReports = []domain.VerificationReport{sampleVerification()}
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected verification rejection")
+		}
+	})
+	t.Run("finding only via plan event rejected", func(t *testing.T) {
+		t.Parallel()
+		snap := plannedSnapshot(t)
+		orphan := sampleFinding()
+		orphan.FindingID = "finding-999999999999999999999999"
+		snap.Findings = append(snap.Findings, orphan)
+		// Mention only in plan refs would still lack analysis provenance.
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected finding without analysis provenance rejection")
+		}
+	})
+	t.Run("valid analyzed", func(t *testing.T) {
+		t.Parallel()
+		if err := analyzedSnapshot(t).Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("valid plan_proposed", func(t *testing.T) {
+		t.Parallel()
+		if err := plannedSnapshot(t).Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("valid failed with historical findings", func(t *testing.T) {
+		t.Parallel()
+		if err := failedSnapshot(t).Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("valid cancelled with historical audited docs", func(t *testing.T) {
+		t.Parallel()
+		if err := cancelledSnapshot(t).Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestWorkflowOccurredAtOrdering(t *testing.T) {
+	t.Parallel()
+	t.Run("same instant different offsets accepted", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.CoordinatorEvents[0].OccurredAt = "2026-07-27T14:06:00+02:00"
+		snap.CoordinatorEvents[1].OccurredAt = "2026-07-27T12:06:00Z"
+		snap.Case.UpdatedAt = "2026-07-27T12:06:00Z"
+		snap.WorkflowState.UpdatedAt = "2026-07-27T12:06:00Z"
+		if err := snap.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("later instant lexicographically smaller accepted", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.CoordinatorEvents[0].OccurredAt = "2026-07-27T14:00:00+02:00" // 12:00Z
+		snap.CoordinatorEvents[1].OccurredAt = "2026-07-27T12:30:00Z"      // later, lex smaller
+		snap.Case.UpdatedAt = "2026-07-27T12:30:00Z"
+		snap.WorkflowState.UpdatedAt = "2026-07-27T12:30:00Z"
+		if err := snap.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("time regression rejected", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.CoordinatorEvents[0].OccurredAt = "2026-07-27T12:10:00Z"
+		snap.CoordinatorEvents[1].OccurredAt = "2026-07-27T12:06:00Z"
+		if err := snap.Validate(); err == nil {
+			t.Fatal("expected occurred_at regression rejection")
+		}
+	})
+	t.Run("identical timestamps accepted", func(t *testing.T) {
+		t.Parallel()
+		snap := analyzedSnapshot(t)
+		snap.CoordinatorEvents[0].OccurredAt = "2026-07-27T12:06:00Z"
+		snap.CoordinatorEvents[1].OccurredAt = "2026-07-27T12:06:00Z"
+		if err := snap.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

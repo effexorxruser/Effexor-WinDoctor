@@ -68,6 +68,17 @@ deterministically. Lifecycle documents (`Findings`, `RepairPlans`,
 `ExecutionEvents`, `VerificationReports`, `CoordinatorEvents`) are valid only
 when `case-workflow-state` is present.
 
+PR #17 additionally requires:
+
+- create/adopt audit events reference the exact Case + workflow + all Target +
+  all Evidence IDs of the snapshot;
+- every Finding / RepairPlan has provenance in the matching analysis/plan audit
+  event type;
+- `ExecutionEvent` / `VerificationReport` documents are rejected until later
+  workflow transitions exist;
+- workflow `occurred_at` ordering compares parsed RFC3339 instants (equal
+  timestamps allowed; lexical string order is not authoritative).
+
 ## Immutable snapshots
 
 A `Snapshot` is the in-memory unit of persistence. On commit it becomes an
