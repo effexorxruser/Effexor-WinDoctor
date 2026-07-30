@@ -1,0 +1,14 @@
+{
+  "schema_name": "coordinator-event",
+  "schema_version": "1.0.0",
+  "event_id": "cevt-111111111111111111111111",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "event_type": "case_created",
+  "actor_type": "system",
+  "occurred_at": "2026-07-27T12:05:00Z",
+  "previous_state": "created",
+  "next_state": "evidence_collected",
+  "workflow_revision": 1,
+  "referenced_document_ids": ["case-aaaaaaaaaaaaaaaaaaaaaaaa"],
+  "reason_code": "legacy_import_committed"
+}

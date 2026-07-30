@@ -37,6 +37,8 @@ func TestCompileAllRecoverySchemas(t *testing.T) {
 		domain.SchemaOperationDescriptor,
 		domain.SchemaExecutionEvent,
 		domain.SchemaVerificationReport,
+		domain.SchemaCaseWorkflowState,
+		domain.SchemaCoordinatorEvent,
 	}
 	for _, name := range want {
 		if schemas[name] == nil {
@@ -60,6 +62,8 @@ func TestSchemaAcceptsValidFixtures(t *testing.T) {
 		"execution-event-started.json":  domain.SchemaExecutionEvent,
 		"execution-event-failed.json":   domain.SchemaExecutionEvent,
 		"verification-report.json":      domain.SchemaVerificationReport,
+		"case-workflow-state.json":      domain.SchemaCaseWorkflowState,
+		"coordinator-event.json":        domain.SchemaCoordinatorEvent,
 	}
 	for file, schemaName := range mapping {
 		file, schemaName := file, schemaName
@@ -102,6 +106,19 @@ func TestSchemaRejectsInvalidFixtures(t *testing.T) {
 		"execution-succeeded-with-error.json":            domain.SchemaExecutionEvent,
 		"execution-failed-missing-error.json":            domain.SchemaExecutionEvent,
 		"verification-bad-evidence-ref.json":             domain.SchemaVerificationReport,
+		"case-workflow-state-bad-enum.json":              domain.SchemaCaseWorkflowState,
+		"case-workflow-state-unknown-field.json":         domain.SchemaCaseWorkflowState,
+		"case-workflow-state-bad-id.json":                domain.SchemaCaseWorkflowState,
+		"case-workflow-state-bad-timestamp.json":         domain.SchemaCaseWorkflowState,
+		"case-workflow-state-missing-transition.json":    domain.SchemaCaseWorkflowState,
+		"case-workflow-state-bad-failure.json":           domain.SchemaCaseWorkflowState,
+		"coordinator-event-bad-enum.json":                domain.SchemaCoordinatorEvent,
+		"coordinator-event-bad-actor.json":               domain.SchemaCoordinatorEvent,
+		"coordinator-event-bad-id.json":                  domain.SchemaCoordinatorEvent,
+		"coordinator-event-bad-timestamp.json":           domain.SchemaCoordinatorEvent,
+		"coordinator-event-bad-reason.json":              domain.SchemaCoordinatorEvent,
+		"coordinator-event-missing-refs.json":            domain.SchemaCoordinatorEvent,
+		"coordinator-event-unknown-field.json":           domain.SchemaCoordinatorEvent,
 	}
 	for file, schemaName := range mapping {
 		file, schemaName := file, schemaName
@@ -154,6 +171,18 @@ func goValidateFixture(schemaName, file string, raw []byte) error {
 	case domain.SchemaVerificationReport:
 		var v domain.VerificationReport
 		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaCaseWorkflowState:
+		var v domain.CaseWorkflowState
+		if err := domain.DecodeAndValidateJSON(raw, &v); err != nil {
+			return err
+		}
+		return domain.ValidatePR17WorkflowStateDocumentSemantics(v)
+	case domain.SchemaCoordinatorEvent:
+		var v domain.CoordinatorEvent
+		if err := domain.DecodeAndValidateJSON(raw, &v); err != nil {
+			return err
+		}
+		return domain.ValidatePR17CoordinatorEventSemantics(v)
 	default:
 		return nil
 	}
@@ -175,6 +204,8 @@ func TestSchemaGoParity(t *testing.T) {
 		"execution-event-started.json":  domain.SchemaExecutionEvent,
 		"execution-event-failed.json":   domain.SchemaExecutionEvent,
 		"verification-report.json":      domain.SchemaVerificationReport,
+		"case-workflow-state.json":      domain.SchemaCaseWorkflowState,
+		"coordinator-event.json":        domain.SchemaCoordinatorEvent,
 	}
 	for file, schemaName := range validMapping {
 		file, schemaName := file, schemaName
@@ -205,6 +236,8 @@ func TestSchemaGoParity(t *testing.T) {
 		schema string
 	}{
 		{"case-manifest-", domain.SchemaCaseManifest},
+		{"case-workflow-state-", domain.SchemaCaseWorkflowState},
+		{"coordinator-event-", domain.SchemaCoordinatorEvent},
 		{"target-", domain.SchemaTarget},
 		{"evidence-", domain.SchemaEvidenceBundle},
 		{"finding-", domain.SchemaFinding},

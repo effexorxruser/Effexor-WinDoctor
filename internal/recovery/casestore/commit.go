@@ -97,7 +97,10 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest, warning
 
 	if len(chain) > 0 {
 		head := chain[len(chain)-1]
-		if head.SnapshotID == manifest.SnapshotID {
+		// Idempotent retry applies only when a parent commit is expected and already
+		// matches, or when no parent precondition is set. Create-only
+		// (ParentExpectationAbsent) never treats an existing head as success.
+		if request.ParentExpectation.Mode != ParentExpectationAbsent && head.SnapshotID == manifest.SnapshotID {
 			return CommitInfo{
 				CaseID:             caseID,
 				SnapshotID:         head.SnapshotID,
@@ -109,6 +112,10 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest, warning
 				DurabilityWarnings: warnings,
 			}, nil
 		}
+	}
+
+	if err := request.ParentExpectation.check(chain); err != nil {
+		return CommitInfo{}, err
 	}
 
 	stagingRoot, sw, err := s.createStagingTransaction(caseID)

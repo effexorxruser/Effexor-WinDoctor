@@ -1,0 +1,12 @@
+{
+  "schema_name": "case-workflow-state",
+  "schema_version": "1.0.0",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "evidence_collected",
+  "revision": 1,
+  "updated_at": "2026-07-27T12:05:00Z",
+  "last_transition_id": "cevt-111111111111111111111111",
+  "failure": {
+    "reason_code": "BAD-CODE"
+  }
+}

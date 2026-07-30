@@ -31,6 +31,8 @@ var contracts = []contractSpec{
 	{Dir: "operation-descriptor-1.0.0", File: "operation-descriptor.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/operation-descriptor-1.0.0/operation-descriptor.schema.json", Name: domain.SchemaOperationDescriptor},
 	{Dir: "execution-event-1.0.0", File: "execution-event.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/execution-event-1.0.0/execution-event.schema.json", Name: domain.SchemaExecutionEvent},
 	{Dir: "verification-report-1.0.0", File: "verification-report.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/verification-report-1.0.0/verification-report.schema.json", Name: domain.SchemaVerificationReport},
+	{Dir: "case-workflow-state-1.0.0", File: "case-workflow-state.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/case-workflow-state-1.0.0/case-workflow-state.schema.json", Name: domain.SchemaCaseWorkflowState},
+	{Dir: "coordinator-event-1.0.0", File: "coordinator-event.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/coordinator-event-1.0.0/coordinator-event.schema.json", Name: domain.SchemaCoordinatorEvent},
 }
 
 var (

@@ -16,6 +16,7 @@
     "executionId": { "type": "string", "pattern": "^exec-[a-f0-9]{24}$" },
     "verificationId": { "type": "string", "pattern": "^verify-[a-f0-9]{24}$" },
     "artifactId": { "type": "string", "pattern": "^artifact-[a-f0-9]{24}$" },
+    "coordinatorEventId": { "type": "string", "pattern": "^cevt-[a-f0-9]{24}$" },
     "relativePath": {
       "type": "string",
       "minLength": 1,
@@ -24,6 +25,39 @@
     "runtime": {
       "type": "string",
       "enum": ["winpe", "windows", "lab_host", "unknown"]
+    },
+    "workflowState": {
+      "type": "string",
+      "enum": [
+        "created",
+        "evidence_collected",
+        "analyzed",
+        "plan_proposed",
+        "awaiting_approval",
+        "approved",
+        "backing_up",
+        "ready_to_execute",
+        "executing",
+        "verifying",
+        "completed",
+        "failed",
+        "rollback_required",
+        "rolling_back",
+        "rolled_back",
+        "cancelled"
+      ]
+    },
+    "actorType": {
+      "type": "string",
+      "enum": [
+        "system",
+        "technician",
+        "deterministic_analyzer",
+        "llm_advisor",
+        "policy",
+        "executor",
+        "verifier"
+      ]
     },
     "artifactRef": {
       "type": "object",

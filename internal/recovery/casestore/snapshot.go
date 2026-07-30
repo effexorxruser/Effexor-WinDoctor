@@ -15,6 +15,26 @@ import (
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/importer/legacyreport"
 )
 
+// Normalize empties optional collections so nil and empty slices serialize
+// identically when preparing documents (no documents written for empty sets).
+func (s *Snapshot) Normalize() {
+	if s.Findings == nil {
+		s.Findings = []domain.Finding{}
+	}
+	if s.RepairPlans == nil {
+		s.RepairPlans = []domain.RepairPlan{}
+	}
+	if s.ExecutionEvents == nil {
+		s.ExecutionEvents = []domain.ExecutionEvent{}
+	}
+	if s.VerificationReports == nil {
+		s.VerificationReports = []domain.VerificationReport{}
+	}
+	if s.CoordinatorEvents == nil {
+		s.CoordinatorEvents = []domain.CoordinatorEvent{}
+	}
+}
+
 // Validate checks Snapshot domain invariants before commit.
 func (s Snapshot) Validate() error {
 	if err := s.Case.Validate(); err != nil {
@@ -37,6 +57,12 @@ func (s Snapshot) Validate() error {
 	}
 	if updated.Before(created) {
 		return fmt.Errorf("%w: updated_at must not be before created_at", ErrInvalidArgument)
+	}
+	if s.WorkflowState == nil {
+		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 || len(s.ExecutionEvents) > 0 ||
+			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 {
+			return fmt.Errorf("%w: lifecycle documents require workflow_state", ErrInvalidArgument)
+		}
 	}
 
 	targetIDs := make(map[string]struct{}, len(s.Targets))
@@ -70,16 +96,7 @@ func (s Snapshot) Validate() error {
 
 	evidenceIDs := make(map[string]struct{}, len(s.EvidenceBundles))
 	artifactByID := make(map[string]domain.ArtifactRef)
-	refs := domain.NewCrossRefs(
-		[]string{s.Case.CaseID},
-		keys(targetIDs),
-		nil, nil, nil, nil,
-	)
-
 	for i, e := range s.EvidenceBundles {
-		if err := e.ValidateEvidenceRefs(refs); err != nil {
-			return fmt.Errorf("evidence_bundles[%d]: %w", i, err)
-		}
 		if e.CaseID != s.Case.CaseID {
 			return fmt.Errorf("%w: evidence_bundles[%d].case_id mismatch", ErrInvalidArgument, i)
 		}
@@ -100,15 +117,505 @@ func (s Snapshot) Validate() error {
 			}
 		}
 	}
+
+	findingIDs := make(map[string]struct{}, len(s.Findings))
+	for _, f := range s.Findings {
+		if _, ok := findingIDs[f.FindingID]; ok {
+			return fmt.Errorf("%w: duplicate finding_id %q", ErrInvalidArgument, f.FindingID)
+		}
+		findingIDs[f.FindingID] = struct{}{}
+	}
+
+	planIDs := make(map[string]struct{}, len(s.RepairPlans))
+	for _, p := range s.RepairPlans {
+		if _, ok := planIDs[p.PlanID]; ok {
+			return fmt.Errorf("%w: duplicate plan_id %q", ErrInvalidArgument, p.PlanID)
+		}
+		planIDs[p.PlanID] = struct{}{}
+	}
+
+	executionIDs := make(map[string]struct{}, len(s.ExecutionEvents))
+	for _, e := range s.ExecutionEvents {
+		if _, ok := executionIDs[e.ExecutionID]; ok {
+			return fmt.Errorf("%w: duplicate execution_id %q", ErrInvalidArgument, e.ExecutionID)
+		}
+		executionIDs[e.ExecutionID] = struct{}{}
+	}
+
+	verificationIDs := make(map[string]struct{}, len(s.VerificationReports))
+	for _, v := range s.VerificationReports {
+		if _, ok := verificationIDs[v.VerificationID]; ok {
+			return fmt.Errorf("%w: duplicate verification_id %q", ErrInvalidArgument, v.VerificationID)
+		}
+		verificationIDs[v.VerificationID] = struct{}{}
+	}
+
+	eventIDs := make(map[string]struct{}, len(s.CoordinatorEvents))
+	for _, ev := range s.CoordinatorEvents {
+		if _, ok := eventIDs[ev.EventID]; ok {
+			return fmt.Errorf("%w: duplicate coordinator event_id %q", ErrInvalidArgument, ev.EventID)
+		}
+		eventIDs[ev.EventID] = struct{}{}
+	}
+
+	docIDs := make(map[string]struct{})
+	docIDs[s.Case.CaseID] = struct{}{}
+	for id := range targetIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range evidenceIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range findingIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range planIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range executionIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range verificationIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range eventIDs {
+		docIDs[id] = struct{}{}
+	}
+	if s.WorkflowState != nil {
+		docIDs[domain.DocumentIDCaseWorkflowState] = struct{}{}
+	}
+
+	refs := domain.CrossRefs{
+		CaseIDs:             setOf(s.Case.CaseID),
+		TargetIDs:           targetIDs,
+		EvidenceIDs:         evidenceIDs,
+		FindingIDs:          findingIDs,
+		PlanIDs:             planIDs,
+		ExecutionIDs:        executionIDs,
+		VerificationIDs:     verificationIDs,
+		ArtifactIDs:         artifactIDSet(artifactByID),
+		CoordinatorEventIDs: eventIDs,
+		DocumentIDs:         docIDs,
+	}
+
+	for i, e := range s.EvidenceBundles {
+		if err := e.ValidateEvidenceRefs(refs); err != nil {
+			return fmt.Errorf("evidence_bundles[%d]: %w", i, err)
+		}
+	}
+	for i, f := range s.Findings {
+		if err := f.ValidateFindingRefs(refs); err != nil {
+			return fmt.Errorf("findings[%d]: %w", i, err)
+		}
+		if f.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: findings[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, p := range s.RepairPlans {
+		if err := p.ValidatePlanRefs(refs); err != nil {
+			return fmt.Errorf("repair_plans[%d]: %w", i, err)
+		}
+		if p.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: repair_plans[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, e := range s.ExecutionEvents {
+		if err := e.ValidateExecutionRefs(refs); err != nil {
+			return fmt.Errorf("execution_events[%d]: %w", i, err)
+		}
+		if e.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: execution_events[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, v := range s.VerificationReports {
+		if err := v.ValidateVerificationRefs(refs); err != nil {
+			return fmt.Errorf("verification_reports[%d]: %w", i, err)
+		}
+		if v.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: verification_reports[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+	for i, ev := range s.CoordinatorEvents {
+		if err := ev.ValidateCoordinatorEventRefs(refs); err != nil {
+			return fmt.Errorf("coordinator_events[%d]: %w", i, err)
+		}
+		if ev.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: coordinator_events[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+		if err := validateCoordinatorEventReferenceSemantics(s, ev); err != nil {
+			return fmt.Errorf("coordinator_events[%d]: %w", i, err)
+		}
+	}
+	if s.WorkflowState != nil {
+		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
+			return fmt.Errorf("workflow_state: %w", err)
+		}
+		if s.WorkflowState.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: workflow_state.case_id mismatch", ErrInvalidArgument)
+		}
+		if !domain.CompatibleWorkflowAndCaseState(s.WorkflowState.State, s.Case.CurrentState) {
+			return fmt.Errorf("%w: workflow state %q incompatible with case current_state %q",
+				ErrInvalidArgument, s.WorkflowState.State, s.Case.CurrentState)
+		}
+		if err := validateWorkflowTransitionIntegrity(s); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func keys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+// validateWorkflowTransitionIntegrity enforces the PR #17 revision model:
+// each state-changing coordinator-event carries an explicit workflow_revision;
+// revisions are unique and form the contiguous sequence 1..WorkflowState.Revision;
+// last_transition_id must reference the event with the maximum revision.
+// Ordering does not depend on occurred_at or event_id.
+func validateWorkflowTransitionIntegrity(s Snapshot) error {
+	ws := s.WorkflowState
+	byID := make(map[string]domain.CoordinatorEvent, len(s.CoordinatorEvents))
+	byRev := make(map[uint64]domain.CoordinatorEvent)
+	var changing []domain.CoordinatorEvent
+	for _, ev := range s.CoordinatorEvents {
+		byID[ev.EventID] = ev
+		isChanging := domain.IsStateChangingCoordinatorEventType(ev.EventType)
+		if !isChanging {
+			if ev.WorkflowRevision != 0 {
+				return fmt.Errorf("%w: non-state-changing event %q must not set workflow_revision",
+					ErrInvalidArgument, ev.EventID)
+			}
+			continue
+		}
+		if ev.WorkflowRevision == 0 {
+			return fmt.Errorf("%w: state-changing event %q requires workflow_revision >= 1",
+				ErrInvalidArgument, ev.EventID)
+		}
+		if _, dup := byRev[ev.WorkflowRevision]; dup {
+			return fmt.Errorf("%w: duplicate workflow_revision %d", ErrInvalidArgument, ev.WorkflowRevision)
+		}
+		byRev[ev.WorkflowRevision] = ev
+		changing = append(changing, ev)
+		if err := domain.ValidatePR17CoordinatorEventSemantics(ev); err != nil {
+			return err
+		}
+	}
+	if uint64(len(changing)) != ws.Revision {
+		return fmt.Errorf("%w: workflow revision %d != state-changing event count %d",
+			ErrInvalidArgument, ws.Revision, len(changing))
+	}
+	if ws.Revision == 0 {
+		return fmt.Errorf("%w: workflow present with revision 0", ErrInvalidArgument)
+	}
+	for rev := uint64(1); rev <= ws.Revision; rev++ {
+		if _, ok := byRev[rev]; !ok {
+			return fmt.Errorf("%w: missing workflow_revision %d in contiguous sequence 1..%d",
+				ErrInvalidArgument, rev, ws.Revision)
+		}
+	}
+	for rev := uint64(2); rev <= ws.Revision; rev++ {
+		prev := byRev[rev-1]
+		curr := byRev[rev]
+		prevAt, err := time.Parse(time.RFC3339, prev.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("%w: workflow revision %d occurred_at: %v", ErrInvalidArgument, rev-1, err)
+		}
+		currAt, err := time.Parse(time.RFC3339, curr.OccurredAt)
+		if err != nil {
+			return fmt.Errorf("%w: workflow revision %d occurred_at: %v", ErrInvalidArgument, rev, err)
+		}
+		if currAt.Before(prevAt) {
+			return fmt.Errorf("%w: workflow revision %d occurred_at %q precedes revision %d occurred_at %q",
+				ErrInvalidArgument, rev, curr.OccurredAt, rev-1, prev.OccurredAt)
+		}
+	}
+	last, ok := byID[ws.LastTransitionID]
+	if !ok {
+		return fmt.Errorf("%w: last_transition_id %q missing", ErrInvalidArgument, ws.LastTransitionID)
+	}
+	if last.CaseID != s.Case.CaseID {
+		return fmt.Errorf("%w: last transition event case_id mismatch", ErrInvalidArgument)
+	}
+	if last.NextState != string(ws.State) {
+		return fmt.Errorf("%w: last transition next_state %q != workflow state %q",
+			ErrInvalidArgument, last.NextState, ws.State)
+	}
+	if !domain.IsStateChangingCoordinatorEventType(last.EventType) {
+		return fmt.Errorf("%w: last_transition_id event type %q is not state-changing",
+			ErrInvalidArgument, last.EventType)
+	}
+	first := byRev[1]
+	if first.EventType != domain.EventCaseCreated && first.EventType != domain.EventLegacyCaseAdopted {
+		return fmt.Errorf("%w: workflow revision 1 must be case_created or legacy_case_adopted", ErrInvalidArgument)
+	}
+	for rev := uint64(2); rev <= ws.Revision; rev++ {
+		prev := byRev[rev-1]
+		curr := byRev[rev]
+		if curr.PreviousState != prev.NextState {
+			return fmt.Errorf("%w: workflow revision %d previous_state %q does not continue revision %d next_state %q",
+				ErrInvalidArgument, rev, curr.PreviousState, rev-1, prev.NextState)
+		}
+	}
+	maxEv := byRev[ws.Revision]
+	if last.EventID != maxEv.EventID || last.WorkflowRevision != ws.Revision {
+		return fmt.Errorf("%w: last_transition_id %q is not the max workflow_revision event %q (revision %d)",
+			ErrInvalidArgument, ws.LastTransitionID, maxEv.EventID, ws.Revision)
+	}
+	if maxEv.NextState != string(ws.State) {
+		return fmt.Errorf("%w: max workflow_revision next_state %q != workflow state %q",
+			ErrInvalidArgument, maxEv.NextState, ws.State)
+	}
+	if err := domain.ValidatePR17WorkflowStateSemantics(*ws, s.Case, maxEv); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	if err := validateLifecycleProvenance(s); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	return nil
+}
+
+func validateLifecycleProvenance(s Snapshot) error {
+	if len(s.ExecutionEvents) > 0 {
+		return fmt.Errorf("execution events are not implemented in PR #17")
+	}
+	if len(s.VerificationReports) > 0 {
+		return fmt.Errorf("verification reports are not implemented in PR #17")
+	}
+	if s.WorkflowState == nil {
+		return nil
+	}
+
+	auditedFindings := make(map[string]struct{})
+	auditedPlans := make(map[string]struct{})
+	for _, ev := range s.CoordinatorEvents {
+		switch ev.EventType {
+		case domain.EventAnalysisCommitted:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findFindingByID(s.Findings, id) != nil {
+					auditedFindings[id] = struct{}{}
+				}
+			}
+		case domain.EventPlanCommitted:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findPlanByID(s.RepairPlans, id) != nil {
+					auditedPlans[id] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, f := range s.Findings {
+		if _, ok := auditedFindings[f.FindingID]; !ok {
+			return fmt.Errorf("finding %q lacks analysis_committed provenance", f.FindingID)
+		}
+	}
+	for _, p := range s.RepairPlans {
+		if _, ok := auditedPlans[p.PlanID]; !ok {
+			return fmt.Errorf("plan %q lacks plan_committed provenance", p.PlanID)
+		}
+	}
+
+	switch s.WorkflowState.State {
+	case domain.WorkflowEvidenceCollected:
+		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 {
+			return fmt.Errorf("state %q must not contain findings or repair plans", s.WorkflowState.State)
+		}
+	case domain.WorkflowAnalyzed:
+		if len(s.Findings) == 0 {
+			return fmt.Errorf("state %q requires at least one finding", s.WorkflowState.State)
+		}
+		if len(s.RepairPlans) > 0 {
+			return fmt.Errorf("state %q must not contain repair plans", s.WorkflowState.State)
+		}
+	case domain.WorkflowPlanProposed:
+		if len(s.Findings) == 0 {
+			return fmt.Errorf("state %q requires audited findings", s.WorkflowState.State)
+		}
+		if len(s.RepairPlans) == 0 {
+			return fmt.Errorf("state %q requires audited repair plans", s.WorkflowState.State)
+		}
+		if s.WorkflowState.ActivePlanID == "" {
+			return fmt.Errorf("state %q requires active_plan_id", s.WorkflowState.State)
+		}
+		if findPlanByID(s.RepairPlans, s.WorkflowState.ActivePlanID) == nil {
+			return fmt.Errorf("active_plan_id %q missing from repair plans", s.WorkflowState.ActivePlanID)
+		}
+	case domain.WorkflowFailed, domain.WorkflowCancelled:
+		// Existing findings/plans already require provenance above.
+	}
+	return nil
+}
+
+func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.CoordinatorEvent) error {
+	if containsRef(ev.ReferencedDocumentIDs, ev.EventID) {
+		return fmt.Errorf("referenced_document_ids must not self-reference event_id")
+	}
+	for _, id := range ev.ReferencedDocumentIDs {
+		if strings.HasPrefix(id, "cevt-") {
+			return fmt.Errorf("referenced_document_ids must not contain coordinator event ids")
+		}
+	}
+	if !containsRef(ev.ReferencedDocumentIDs, s.Case.CaseID) {
+		return fmt.Errorf("referenced_document_ids must contain case id")
+	}
+	if !containsRef(ev.ReferencedDocumentIDs, domain.DocumentIDCaseWorkflowState) {
+		return fmt.Errorf("referenced_document_ids must contain case-workflow-state")
+	}
+	switch ev.EventType {
+	case domain.EventCaseCreated, domain.EventLegacyCaseAdopted:
+		want := createOrAdoptReferenceSet(s)
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("%s refs: %w", ev.EventType, err)
+		}
+	case domain.EventAnalysisCommitted:
+		want, err := analysisReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("analysis refs: %w", err)
+		}
+	case domain.EventPlanCommitted:
+		want, err := planReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("plan refs: %w", err)
+		}
+	case domain.EventCaseFailed, domain.EventCaseCancelled:
+		want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+		if s.WorkflowState != nil && s.WorkflowState.ActivePlanID != "" {
+			want = append(want, s.WorkflowState.ActivePlanID)
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("terminal refs: %w", err)
+		}
+	}
+	return nil
+}
+
+func createOrAdoptReferenceSet(s Snapshot) []string {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	for _, t := range s.Targets {
+		want = append(want, t.TargetID)
+	}
+	for _, e := range s.EvidenceBundles {
+		want = append(want, e.EvidenceID)
+	}
+	return uniqueSortedStrings(want)
+}
+
+func analysisReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	found := 0
+	for _, id := range ev.ReferencedDocumentIDs {
+		if findFindingByID(s.Findings, id) == nil {
+			continue
+		}
+		finding := findFindingByID(s.Findings, id)
+		found++
+		want = append(want, finding.FindingID)
+		want = append(want, finding.EvidenceRefs...)
+		want = append(want, finding.AffectedTargetIDs...)
+	}
+	if found == 0 {
+		return nil, fmt.Errorf("analysis_committed requires at least one finding ref")
+	}
+	return uniqueSortedStrings(want), nil
+}
+
+func planReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	var plans []domain.RepairPlan
+	for _, id := range ev.ReferencedDocumentIDs {
+		if plan := findPlanByID(s.RepairPlans, id); plan != nil {
+			plans = append(plans, *plan)
+		}
+	}
+	if len(plans) != 1 {
+		return nil, fmt.Errorf("plan_committed requires exactly one plan ref")
+	}
+	plan := plans[0]
+	if s.WorkflowState != nil && s.WorkflowState.State == domain.WorkflowPlanProposed &&
+		s.WorkflowState.ActivePlanID != plan.PlanID {
+		return nil, fmt.Errorf("plan_committed active_plan_id must match referenced plan")
+	}
+	want = append(want, plan.PlanID)
+	want = append(want, plan.FindingRefs...)
+	for _, step := range plan.Steps {
+		want = append(want, step.TargetID)
+	}
+	return uniqueSortedStrings(want), nil
+}
+
+func requireExactRefSet(got []string, want []string) error {
+	gotSet := uniqueSortedStrings(got)
+	wantSet := uniqueSortedStrings(want)
+	if len(gotSet) != len(wantSet) {
+		return fmt.Errorf("exact ref set mismatch: got %v want %v", gotSet, wantSet)
+	}
+	for i := range gotSet {
+		if gotSet[i] != wantSet[i] {
+			return fmt.Errorf("exact ref set mismatch: got %v want %v", gotSet, wantSet)
+		}
+	}
+	return nil
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func containsRef(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func findFindingByID(values []domain.Finding, want string) *domain.Finding {
+	for i := range values {
+		if values[i].FindingID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
+func findPlanByID(values []domain.RepairPlan, want string) *domain.RepairPlan {
+	for i := range values {
+		if values[i].PlanID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
+func setOf(ids ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+func artifactIDSet(m map[string]domain.ArtifactRef) map[string]struct{} {
+	out := make(map[string]struct{}, len(m))
+	for id := range m {
+		out[id] = struct{}{}
+	}
 	return out
 }
 
@@ -125,9 +632,14 @@ func artifactRefsEqual(a, b domain.ArtifactRef) bool {
 // SnapshotFromImporterResult converts a legacy importer Result into a Snapshot.
 func SnapshotFromImporterResult(result legacyreport.Result) Snapshot {
 	return Snapshot{
-		Case:            result.Case,
-		Targets:         append([]domain.Target(nil), result.Targets...),
-		EvidenceBundles: append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
+		Case:                result.Case,
+		Targets:             append([]domain.Target(nil), result.Targets...),
+		EvidenceBundles:     append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
+		Findings:            []domain.Finding{},
+		RepairPlans:         []domain.RepairPlan{},
+		ExecutionEvents:     []domain.ExecutionEvent{},
+		VerificationReports: []domain.VerificationReport{},
+		CoordinatorEvents:   []domain.CoordinatorEvent{},
 	}
 }
 
@@ -140,6 +652,7 @@ type preparedDocument struct {
 }
 
 func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
+	snap.Normalize()
 	var docs []preparedDocument
 
 	caseBytes, err := marshalCanonical(snap.Case)
@@ -147,6 +660,14 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 		return nil, fmt.Errorf("marshal case-manifest: %w", err)
 	}
 	docs = append(docs, documentEntry("case-manifest.json", caseBytes))
+
+	if snap.WorkflowState != nil {
+		raw, err := marshalCanonical(snap.WorkflowState)
+		if err != nil {
+			return nil, fmt.Errorf("marshal case-workflow-state: %w", err)
+		}
+		docs = append(docs, documentEntry("case-workflow-state.json", raw))
+	}
 
 	targets := append([]domain.Target(nil), snap.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].TargetID < targets[j].TargetID })
@@ -172,6 +693,71 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 			return nil, fmt.Errorf("marshal evidence %s: %w", e.EvidenceID, err)
 		}
 		docs = append(docs, documentEntry("evidence/"+e.EvidenceID+".json", raw))
+	}
+
+	findings := append([]domain.Finding(nil), snap.Findings...)
+	sort.Slice(findings, func(i, j int) bool { return findings[i].FindingID < findings[j].FindingID })
+	for _, f := range findings {
+		if err := validateFindingID(f.FindingID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(f)
+		if err != nil {
+			return nil, fmt.Errorf("marshal finding %s: %w", f.FindingID, err)
+		}
+		docs = append(docs, documentEntry("findings/"+f.FindingID+".json", raw))
+	}
+
+	plans := append([]domain.RepairPlan(nil), snap.RepairPlans...)
+	sort.Slice(plans, func(i, j int) bool { return plans[i].PlanID < plans[j].PlanID })
+	for _, p := range plans {
+		if err := validatePlanID(p.PlanID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(p)
+		if err != nil {
+			return nil, fmt.Errorf("marshal plan %s: %w", p.PlanID, err)
+		}
+		docs = append(docs, documentEntry("plans/"+p.PlanID+".json", raw))
+	}
+
+	execs := append([]domain.ExecutionEvent(nil), snap.ExecutionEvents...)
+	sort.Slice(execs, func(i, j int) bool { return execs[i].ExecutionID < execs[j].ExecutionID })
+	for _, e := range execs {
+		if err := validateExecutionID(e.ExecutionID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(e)
+		if err != nil {
+			return nil, fmt.Errorf("marshal execution %s: %w", e.ExecutionID, err)
+		}
+		docs = append(docs, documentEntry("executions/"+e.ExecutionID+".json", raw))
+	}
+
+	verifs := append([]domain.VerificationReport(nil), snap.VerificationReports...)
+	sort.Slice(verifs, func(i, j int) bool { return verifs[i].VerificationID < verifs[j].VerificationID })
+	for _, v := range verifs {
+		if err := validateVerificationID(v.VerificationID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal verification %s: %w", v.VerificationID, err)
+		}
+		docs = append(docs, documentEntry("verifications/"+v.VerificationID+".json", raw))
+	}
+
+	events := append([]domain.CoordinatorEvent(nil), snap.CoordinatorEvents...)
+	sort.Slice(events, func(i, j int) bool { return events[i].EventID < events[j].EventID })
+	for _, ev := range events {
+		if err := validateCoordinatorEventID(ev.EventID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(ev)
+		if err != nil {
+			return nil, fmt.Errorf("marshal coordinator-event %s: %w", ev.EventID, err)
+		}
+		docs = append(docs, documentEntry("coordinator-events/"+ev.EventID+".json", raw))
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].RelativePath < docs[j].RelativePath })

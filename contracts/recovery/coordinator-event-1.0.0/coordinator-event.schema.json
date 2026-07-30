@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/coordinator-event-1.0.0/coordinator-event.schema.json",
+  "title": "Effexor Recovery coordinator event 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "event_id",
+    "case_id",
+    "event_type",
+    "actor_type",
+    "occurred_at",
+    "referenced_document_ids",
+    "reason_code"
+  ],
+  "properties": {
+    "schema_name": { "const": "coordinator-event" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "event_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/coordinatorEventId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "case_created",
+        "analysis_committed",
+        "plan_committed",
+        "case_failed",
+        "case_cancelled",
+        "legacy_case_adopted"
+      ]
+    },
+    "actor_type": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/actorType" },
+    "occurred_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "previous_state": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/workflowState" },
+    "next_state": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/workflowState" },
+    "expected_commit_id": {
+      "type": "string",
+      "pattern": "^commit-[a-f0-9]{24}$"
+    },
+    "workflow_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "referenced_document_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{1,127}$"
+    },
+    "command_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "event_type": { "const": "case_created" },
+        "actor_type": { "enum": ["system", "technician"] },
+        "previous_state": { "const": "created" },
+        "next_state": { "const": "evidence_collected" },
+        "workflow_revision": { "const": 1 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision"],
+      "not": { "required": ["expected_commit_id"] }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "legacy_case_adopted" },
+        "actor_type": { "enum": ["system", "technician"] },
+        "next_state": { "const": "evidence_collected" },
+        "workflow_revision": { "const": 1 }
+      },
+      "required": ["next_state", "workflow_revision", "expected_commit_id"],
+      "not": { "required": ["previous_state"] }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "analysis_committed" },
+        "actor_type": { "enum": ["system", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed"] },
+        "next_state": { "const": "analyzed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "plan_committed" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "const": "analyzed" },
+        "next_state": { "const": "plan_proposed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "case_failed" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "next_state": { "const": "failed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "case_cancelled" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "next_state": { "const": "cancelled" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    }
+  ]
+}

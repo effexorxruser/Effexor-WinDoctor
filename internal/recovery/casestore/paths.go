@@ -9,13 +9,18 @@ import (
 )
 
 var (
-	reCaseID     = regexp.MustCompile(`^case-[a-f0-9]{24}$`)
-	reSnapshotID = regexp.MustCompile(`^snapshot-[a-f0-9]{24}$`)
-	reCommitID   = regexp.MustCompile(`^commit-[a-f0-9]{24}$`)
-	reSHA256     = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	reTargetID   = regexp.MustCompile(`^target-[a-z0-9-]{8,64}$`)
-	reEvidenceID = regexp.MustCompile(`^evidence-[a-f0-9]{24}$`)
-	reArtifactID = regexp.MustCompile(`^artifact-[a-f0-9]{24}$`)
+	reCaseID             = regexp.MustCompile(`^case-[a-f0-9]{24}$`)
+	reSnapshotID         = regexp.MustCompile(`^snapshot-[a-f0-9]{24}$`)
+	reCommitID           = regexp.MustCompile(`^commit-[a-f0-9]{24}$`)
+	reSHA256             = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	reTargetID           = regexp.MustCompile(`^target-[a-z0-9-]{8,64}$`)
+	reEvidenceID         = regexp.MustCompile(`^evidence-[a-f0-9]{24}$`)
+	reFindingID          = regexp.MustCompile(`^finding-[a-f0-9]{24}$`)
+	rePlanID             = regexp.MustCompile(`^plan-[a-f0-9]{24}$`)
+	reExecutionID        = regexp.MustCompile(`^exec-[a-f0-9]{24}$`)
+	reVerificationID     = regexp.MustCompile(`^verify-[a-f0-9]{24}$`)
+	reArtifactID         = regexp.MustCompile(`^artifact-[a-f0-9]{24}$`)
+	reCoordinatorEventID = regexp.MustCompile(`^cevt-[a-f0-9]{24}$`)
 )
 
 func (s *Store) casesRoot() string {
@@ -93,6 +98,41 @@ func validateTargetID(id string) error {
 func validateEvidenceID(id string) error {
 	if !reEvidenceID.MatchString(id) {
 		return fmt.Errorf("%w: invalid evidence_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validateFindingID(id string) error {
+	if !reFindingID.MatchString(id) {
+		return fmt.Errorf("%w: invalid finding_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validatePlanID(id string) error {
+	if !rePlanID.MatchString(id) {
+		return fmt.Errorf("%w: invalid plan_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validateExecutionID(id string) error {
+	if !reExecutionID.MatchString(id) {
+		return fmt.Errorf("%w: invalid execution_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validateVerificationID(id string) error {
+	if !reVerificationID.MatchString(id) {
+		return fmt.Errorf("%w: invalid verification_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validateCoordinatorEventID(id string) error {
+	if !reCoordinatorEventID.MatchString(id) {
+		return fmt.Errorf("%w: invalid coordinator event_id %q", ErrInvalidArgument, id)
 	}
 	return nil
 }
