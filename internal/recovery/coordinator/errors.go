@@ -23,6 +23,15 @@ var (
 
 	// ErrActorNotAllowed indicates the actor type may not perform the transition.
 	ErrActorNotAllowed = errors.New("coordinator: actor not allowed")
+
+	// ErrCaseAlreadyExists indicates CreateCase found an existing Case head.
+	ErrCaseAlreadyExists = errors.New("coordinator: case already exists")
+
+	// ErrCaseBusy indicates the Case Store lock is held and the head did not change.
+	ErrCaseBusy = errors.New("coordinator: case busy")
+
+	// ErrLegacyAdoptionRejected indicates AdoptLegacyCase preconditions failed.
+	ErrLegacyAdoptionRejected = errors.New("coordinator: legacy adoption rejected")
 )
 
 // RevisionConflictError carries optimistic concurrency details.
@@ -39,6 +48,20 @@ func (e *RevisionConflictError) Error() string {
 
 func (e *RevisionConflictError) Is(target error) bool {
 	return target == ErrCaseRevisionConflict
+}
+
+// CaseAlreadyExistsError is returned by CreateCase when the Case already has a head.
+type CaseAlreadyExistsError struct {
+	CaseID         string
+	ExistingCommit string
+}
+
+func (e *CaseAlreadyExistsError) Error() string {
+	return fmt.Sprintf("coordinator: case %s already exists (commit %s)", e.CaseID, e.ExistingCommit)
+}
+
+func (e *CaseAlreadyExistsError) Is(target error) bool {
+	return target == ErrCaseAlreadyExists
 }
 
 // TransitionError describes an illegal or incomplete transition attempt.

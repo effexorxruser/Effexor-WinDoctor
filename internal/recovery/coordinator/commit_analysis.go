@@ -9,6 +9,45 @@ import (
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 )
 
+func mapStoreWriteError(ctx context.Context, c *Coordinator, caseID, expectedCommitID string, err error) error {
+	if errors.Is(err, casestore.ErrCaseExists) {
+		actual := ""
+		if _, info, loadErr := c.store.LoadLatest(ctx, caseID); loadErr == nil {
+			actual = info.CommitID
+		}
+		return &CaseAlreadyExistsError{CaseID: caseID, ExistingCommit: actual}
+	}
+	if errors.Is(err, casestore.ErrRevisionConflict) {
+		actual := ""
+		if _, info, loadErr := c.store.LoadLatest(ctx, caseID); loadErr == nil {
+			actual = info.CommitID
+		}
+		return &RevisionConflictError{
+			CaseID:           caseID,
+			ExpectedCommitID: expectedCommitID,
+			ActualCommitID:   actual,
+		}
+	}
+	if errors.Is(err, casestore.ErrCaseLocked) {
+		if expectedCommitID != "" {
+			if _, info, loadErr := c.store.LoadLatest(ctx, caseID); loadErr == nil {
+				if info.CommitID != expectedCommitID {
+					return &RevisionConflictError{
+						CaseID:           caseID,
+						ExpectedCommitID: expectedCommitID,
+						ActualCommitID:   info.CommitID,
+					}
+				}
+			}
+		}
+		return fmt.Errorf("%w: %v", ErrCaseBusy, err)
+	}
+	if isIntegrityFailure(err) {
+		return fmt.Errorf("%w: %v", ErrCaseCorrupt, err)
+	}
+	return err
+}
+
 func (c *Coordinator) loadExpected(ctx context.Context, caseID, expectedCommitID string) (casestore.Snapshot, casestore.CommitInfo, error) {
 	if caseID == "" {
 		return casestore.Snapshot{}, casestore.CommitInfo{}, fmt.Errorf("%w: case_id is required", ErrInvalidArgument)
@@ -45,24 +84,12 @@ func (c *Coordinator) loadExpected(ctx context.Context, caseID, expectedCommitID
 
 func (c *Coordinator) commitSnapshot(ctx context.Context, snap casestore.Snapshot, expectedParentCommitID string) (CaseView, error) {
 	info, err := c.store.Commit(ctx, casestore.CommitRequest{
-		Snapshot:               snap,
-		Reason:                 casestore.CommitReasonCaseSnapshot,
-		ExpectedParentCommitID: expectedParentCommitID,
+		Snapshot:          snap,
+		Reason:            casestore.CommitReasonCaseSnapshot,
+		ParentExpectation: casestore.ExpectParentCommit(expectedParentCommitID),
 	})
 	if err != nil {
-		if errors.Is(err, casestore.ErrRevisionConflict) {
-			actual := ""
-			if loaded, latest, loadErr := c.store.LoadLatest(ctx, snap.Case.CaseID); loadErr == nil {
-				actual = latest.CommitID
-				_ = loaded
-			}
-			return CaseView{}, &RevisionConflictError{
-				CaseID:           snap.Case.CaseID,
-				ExpectedCommitID: expectedParentCommitID,
-				ActualCommitID:   actual,
-			}
-		}
-		return CaseView{}, err
+		return CaseView{}, mapStoreWriteError(ctx, c, snap.Case.CaseID, expectedParentCommitID, err)
 	}
 	loaded, info2, err := c.store.LoadLatest(ctx, snap.Case.CaseID)
 	if err != nil {
@@ -70,6 +97,22 @@ func (c *Coordinator) commitSnapshot(ctx context.Context, snap casestore.Snapsho
 	}
 	_ = info
 	return c.viewFrom(loaded, info2)
+}
+
+func validatePlanForPR17(plan domain.RepairPlan, caseID string) error {
+	if plan.CaseID != "" && plan.CaseID != caseID {
+		return fmt.Errorf("%w: plan.case_id mismatch", ErrInvalidArgument)
+	}
+	if plan.Status != "draft" {
+		return fmt.Errorf("%w: PR #17 CommitPlan allows only status=draft (got %q)", ErrInvalidArgument, plan.Status)
+	}
+	if len(plan.FindingRefs) == 0 {
+		return fmt.Errorf("%w: plan requires at least one finding_ref", ErrInvalidArgument)
+	}
+	if len(plan.Steps) == 0 {
+		return fmt.Errorf("%w: plan requires at least one step", ErrInvalidArgument)
+	}
+	return nil
 }
 
 // CommitAnalysis persists Findings and transitions to analyzed.
@@ -91,22 +134,12 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 	}
 
 	next := copySnapshot(snap)
-	next.Findings = append([]domain.Finding(nil), req.Findings...)
-	refs := make([]string, 0, len(req.Findings))
-	for _, f := range req.Findings {
-		if f.CaseID == "" {
-			f.CaseID = req.CaseID
-		}
-		refs = append(refs, f.FindingID)
-	}
-	// Re-assign with case_id filled when callers omit it.
 	filled := make([]domain.Finding, len(req.Findings))
 	for i, f := range req.Findings {
 		if f.CaseID == "" {
 			f.CaseID = req.CaseID
 		}
 		filled[i] = f
-		refs[i] = f.FindingID
 	}
 	next.Findings = filled
 
@@ -117,7 +150,7 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 		from,
 		to,
 		info.CommitID,
-		refs,
+		nil,
 		reason,
 		req.CommandID,
 	)
@@ -129,7 +162,16 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan)
+	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	for i := range next.CoordinatorEvents {
+		if next.CoordinatorEvents[i].EventID == event.EventID {
+			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
+			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
+			break
+		}
+	}
 
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
@@ -137,7 +179,7 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 	return c.commitSnapshot(ctx, next, info.CommitID)
 }
 
-// CommitPlan persists a RepairPlan and transitions analyzed -> plan_proposed.
+// CommitPlan persists a draft RepairPlan and transitions analyzed -> plan_proposed.
 func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (CaseView, error) {
 	actor := defaultActor(req.Actor, domain.ActorSystem)
 	reason := defaultReason(req.ReasonCode, "plan_committed")
@@ -152,8 +194,11 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 	if plan.CaseID == "" {
 		plan.CaseID = req.CaseID
 	}
+	if err := validatePlanForPR17(plan, req.CaseID); err != nil {
+		return CaseView{}, err
+	}
+
 	next := copySnapshot(snap)
-	// Upsert by plan_id.
 	replaced := false
 	for i, p := range next.RepairPlans {
 		if p.PlanID == plan.PlanID {
@@ -181,7 +226,7 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 		from,
 		to,
 		info.CommitID,
-		[]string{plan.PlanID},
+		nil,
 		reason,
 		req.CommandID,
 	)
@@ -189,7 +234,16 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 		return CaseView{}, err
 	}
 	c.appendEvent(&next, event)
-	c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, plan.PlanID)
+	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, plan.PlanID); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	for i := range next.CoordinatorEvents {
+		if next.CoordinatorEvents[i].EventID == event.EventID {
+			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
+			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
+			break
+		}
+	}
 
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
@@ -222,7 +276,7 @@ func (c *Coordinator) FailCase(ctx context.Context, req FailCaseRequest) (CaseVi
 		from,
 		to,
 		info.CommitID,
-		[]string{req.CaseID},
+		nil,
 		reason,
 		req.CommandID,
 	)
@@ -235,7 +289,16 @@ func (c *Coordinator) FailCase(ctx context.Context, req FailCaseRequest) (CaseVi
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	c.setWorkflow(&next, to, event.EventID, nextRevision(snap), failure, activePlan)
+	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), failure, activePlan); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	for i := range next.CoordinatorEvents {
+		if next.CoordinatorEvents[i].EventID == event.EventID {
+			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
+			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
+			break
+		}
+	}
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
@@ -267,7 +330,7 @@ func (c *Coordinator) CancelCase(ctx context.Context, req CancelCaseRequest) (Ca
 		from,
 		to,
 		info.CommitID,
-		[]string{req.CaseID},
+		nil,
 		reason,
 		req.CommandID,
 	)
@@ -279,7 +342,16 @@ func (c *Coordinator) CancelCase(ctx context.Context, req CancelCaseRequest) (Ca
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan)
+	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	for i := range next.CoordinatorEvents {
+		if next.CoordinatorEvents[i].EventID == event.EventID {
+			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
+			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
+			break
+		}
+	}
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}

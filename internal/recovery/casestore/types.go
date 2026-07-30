@@ -47,10 +47,10 @@ const (
 
 // CommitRequest is the input to Store.Commit.
 type CommitRequest struct {
-	Snapshot               Snapshot
-	ArtifactProvider       ArtifactProvider
-	Reason                 CommitReason
-	ExpectedParentCommitID string // optional optimistic concurrency token; empty skips the check
+	Snapshot          Snapshot
+	ArtifactProvider  ArtifactProvider
+	Reason            CommitReason
+	ParentExpectation ParentExpectation
 }
 
 // CommitInfo describes a published (or idempotently reused) commit.

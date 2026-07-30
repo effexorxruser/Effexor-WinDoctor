@@ -23,28 +23,45 @@ This package does **not**:
 
 | Method | Effect |
 |--------|--------|
-| `CreateCase` | Import diagnostic-report 1.3.0 → commit initial snapshot at `evidence_collected` |
-| `LoadCase` | Verify Case Store integrity → return latest `CaseView` |
+| `CreateCase` | Import diagnostic-report 1.3.0 → commit initial snapshot at `evidence_collected` (**create-only**) |
+| `LoadCase` | Verify Case Store integrity → return latest `CaseView` (read-only) |
+| `AdoptLegacyCase` | Attach workflow to a legacy Case/Target/Evidence snapshot |
 | `CommitAnalysis` | Persist Findings → `analyzed` (refresh `analyzed → analyzed` allowed) |
-| `CommitPlan` | Persist RepairPlan → `plan_proposed` |
+| `CommitPlan` | Persist **draft** RepairPlan → `plan_proposed` |
 | `FailCase` | Transition to `failed` |
 | `CancelCase` | Transition to `cancelled` |
 
-## Workflow state
+`CreateCase` requires an absent Case head (`ParentExpectationAbsent`). A second
+create for the same report hash returns `ErrCaseAlreadyExists` and does not
+append snapshots or reset workflow. Use `AdoptLegacyCase` to migrate legacy
+snapshots; never treat `CreateCase` as migration.
 
-Coordinator-owned state lives in companion document `case-workflow-state` 1.0.0
-(`documents/case-workflow-state.json`). It is **not** a silent widening of
-`case-manifest` 1.0.0 / `current_state`.
+`CommitPlan` accepts only `status=draft` with at least one finding_ref and one
+step (Coordinator policy for PR #17; RepairPlan contract unchanged).
 
-PR #17 implements only:
+## Workflow ↔ CaseManifest sync
 
-- `created → evidence_collected` (during CreateCase)
-- `evidence_collected → analyzed`
-- `analyzed → analyzed`
-- `analyzed → plan_proposed`
-- `{created,evidence_collected,analyzed,plan_proposed} → failed|cancelled`
+Coordinator updates both documents together:
 
-Later states exist in the contract enum for forward compatibility.
+| WorkflowState | CaseManifest.current_state |
+|---------------|----------------------------|
+| created | NEW |
+| evidence_collected | SNAPSHOTTED |
+| analyzed | DIAGNOSED |
+| plan_proposed | PLANNED |
+| failed | FAILED |
+| cancelled | CANCELLED |
+
+Incompatible pairs are rejected by Snapshot validation.
+
+## Optimistic concurrency / busy
+
+State-changing methods require `ExpectedCommitID` and pass
+`ParentExpectationCommit` into Case Store. Mismatch → `ErrCaseRevisionConflict`.
+
+If Case Store returns `ErrCaseLocked`:
+- when latest head differs from expected → `ErrCaseRevisionConflict`
+- when head is unchanged → `ErrCaseBusy`
 
 ## Audit
 
@@ -52,18 +69,24 @@ Immutable `coordinator-event` 1.0.0 documents are stored under
 `documents/coordinator-events/<event_id>.json` inside each snapshot. There is
 no separate mutable log.
 
+Referenced document IDs must resolve to Case/Target/Evidence/Finding/Plan/
+Execution/Verification IDs or the singleton `case-workflow-state` document id.
+Duplicates and empty refs are rejected.
+
+Revision model: `WorkflowState.Revision` equals the count of state-changing
+coordinator events; `last_transition_id` is the latest such event.
+
 PR #17 actors permitted to transition state:
 
 - `system`
 - `technician`
 - `deterministic_analyzer`
 
-## Optimistic concurrency
+## Timestamps
 
-State-changing methods require `ExpectedCommitID`. The Coordinator loads the
-latest commit, compares IDs, and passes `ExpectedParentCommitID` into Case
-Store `Commit`. Mismatch returns typed `ErrCaseRevisionConflict`. Competing
-updates are never merged.
+Coordinator timestamps are monotonic relative to `Case.CreatedAt`,
+`Case.UpdatedAt`, and `WorkflowState.UpdatedAt`. WinPE wall clock alone is not
+trusted.
 
 ## Idempotency
 

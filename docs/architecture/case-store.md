@@ -21,7 +21,7 @@ runtime or GUI. Orchestration belongs to the Recovery Coordinator
 - Verify hashes, sizes, references, and the commit chain
 - Survive interrupted writes safely
 - Support idempotent retry
-- Optional `ExpectedParentCommitID` optimistic concurrency on Commit
+- Explicit `ParentExpectation` on Commit: unspecified, specific parent, or absent head
 
 ## Recommended roots
 
@@ -203,7 +203,7 @@ The Recovery Coordinator ([`recovery-coordinator.md`](recovery-coordinator.md)):
 - calls `Commit` after importer / analysis / plan commits
 - calls `LoadLatest` to resume cases
 - uses `Verify` for integrity before state changes
-- passes `ExpectedParentCommitID` for optimistic concurrency
+- passes `ParentExpectation` (`ExpectAbsentParent` / `ExpectParentCommit`) for optimistic concurrency
 
 The store remains policy-free: it persists and verifies, it does not decide
 workflow transitions.

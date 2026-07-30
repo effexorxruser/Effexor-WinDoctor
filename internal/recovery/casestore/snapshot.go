@@ -152,6 +152,33 @@ func (s Snapshot) Validate() error {
 		eventIDs[ev.EventID] = struct{}{}
 	}
 
+	docIDs := make(map[string]struct{})
+	docIDs[s.Case.CaseID] = struct{}{}
+	for id := range targetIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range evidenceIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range findingIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range planIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range executionIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range verificationIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range eventIDs {
+		docIDs[id] = struct{}{}
+	}
+	if s.WorkflowState != nil {
+		docIDs[domain.DocumentIDCaseWorkflowState] = struct{}{}
+	}
+
 	refs := domain.CrossRefs{
 		CaseIDs:             setOf(s.Case.CaseID),
 		TargetIDs:           targetIDs,
@@ -159,8 +186,10 @@ func (s Snapshot) Validate() error {
 		FindingIDs:          findingIDs,
 		PlanIDs:             planIDs,
 		ExecutionIDs:        executionIDs,
+		VerificationIDs:     verificationIDs,
 		ArtifactIDs:         artifactIDSet(artifactByID),
 		CoordinatorEventIDs: eventIDs,
+		DocumentIDs:         docIDs,
 	}
 
 	for i, e := range s.EvidenceBundles {
@@ -215,8 +244,106 @@ func (s Snapshot) Validate() error {
 		if s.WorkflowState.CaseID != s.Case.CaseID {
 			return fmt.Errorf("%w: workflow_state.case_id mismatch", ErrInvalidArgument)
 		}
+		if !domain.CompatibleWorkflowAndCaseState(s.WorkflowState.State, s.Case.CurrentState) {
+			return fmt.Errorf("%w: workflow state %q incompatible with case current_state %q",
+				ErrInvalidArgument, s.WorkflowState.State, s.Case.CurrentState)
+		}
+		if err := validateWorkflowTransitionIntegrity(s); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validateWorkflowTransitionIntegrity enforces the PR #17 revision model:
+// WorkflowState.Revision equals the count of state-changing coordinator events,
+// and last_transition_id identifies the last such event (by occurred_at, then event_id).
+func validateWorkflowTransitionIntegrity(s Snapshot) error {
+	ws := s.WorkflowState
+	byID := make(map[string]domain.CoordinatorEvent, len(s.CoordinatorEvents))
+	var changing []domain.CoordinatorEvent
+	for _, ev := range s.CoordinatorEvents {
+		byID[ev.EventID] = ev
+		if _, ok := domain.StateChangingEventTypes[ev.EventType]; ok {
+			changing = append(changing, ev)
+		}
+	}
+	if uint64(len(changing)) != ws.Revision {
+		return fmt.Errorf("%w: workflow revision %d != state-changing event count %d",
+			ErrInvalidArgument, ws.Revision, len(changing))
+	}
+	last, ok := byID[ws.LastTransitionID]
+	if !ok {
+		return fmt.Errorf("%w: last_transition_id %q missing", ErrInvalidArgument, ws.LastTransitionID)
+	}
+	if last.CaseID != s.Case.CaseID {
+		return fmt.Errorf("%w: last transition event case_id mismatch", ErrInvalidArgument)
+	}
+	if last.NextState != string(ws.State) {
+		return fmt.Errorf("%w: last transition next_state %q != workflow state %q",
+			ErrInvalidArgument, last.NextState, ws.State)
+	}
+	if _, ok := domain.StateChangingEventTypes[last.EventType]; !ok {
+		return fmt.Errorf("%w: last_transition_id event type %q is not state-changing",
+			ErrInvalidArgument, last.EventType)
+	}
+	if err := validateEventTransitionPair(last); err != nil {
+		return err
+	}
+	if len(changing) == 0 {
+		return fmt.Errorf("%w: workflow present without state-changing events", ErrInvalidArgument)
+	}
+	sort.Slice(changing, func(i, j int) bool {
+		if changing[i].OccurredAt != changing[j].OccurredAt {
+			return changing[i].OccurredAt < changing[j].OccurredAt
+		}
+		return changing[i].EventID < changing[j].EventID
+	})
+	tail := changing[len(changing)-1]
+	if tail.EventID != ws.LastTransitionID {
+		return fmt.Errorf("%w: last_transition_id %q is not the latest state-changing event %q",
+			ErrInvalidArgument, ws.LastTransitionID, tail.EventID)
+	}
+	return nil
+}
+
+func validateEventTransitionPair(ev domain.CoordinatorEvent) error {
+	if ev.EventType == domain.EventLegacyCaseAdopted {
+		if ev.PreviousState == "" && ev.NextState == string(domain.WorkflowEvidenceCollected) {
+			return nil
+		}
+		return fmt.Errorf("%w: legacy_case_adopted requires previous_state absent and next_state evidence_collected",
+			ErrInvalidArgument)
+	}
+	wantType, ok := eventTypeForTransition(domain.WorkflowStateName(ev.PreviousState), domain.WorkflowStateName(ev.NextState))
+	if !ok {
+		return fmt.Errorf("%w: event %s has invalid transition %q -> %q",
+			ErrInvalidArgument, ev.EventType, ev.PreviousState, ev.NextState)
+	}
+	if wantType != ev.EventType {
+		return fmt.Errorf("%w: event type %q does not match transition %q -> %q (want %q)",
+			ErrInvalidArgument, ev.EventType, ev.PreviousState, ev.NextState, wantType)
+	}
+	return nil
+}
+
+func eventTypeForTransition(from, to domain.WorkflowStateName) (domain.CoordinatorEventType, bool) {
+	switch {
+	case from == domain.WorkflowCreated && to == domain.WorkflowEvidenceCollected:
+		return domain.EventCaseCreated, true
+	case from == domain.WorkflowEvidenceCollected && to == domain.WorkflowAnalyzed:
+		return domain.EventAnalysisCommitted, true
+	case from == domain.WorkflowAnalyzed && to == domain.WorkflowAnalyzed:
+		return domain.EventAnalysisCommitted, true
+	case from == domain.WorkflowAnalyzed && to == domain.WorkflowPlanProposed:
+		return domain.EventPlanCommitted, true
+	case to == domain.WorkflowFailed && (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed):
+		return domain.EventCaseFailed, true
+	case to == domain.WorkflowCancelled && (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed):
+		return domain.EventCaseCancelled, true
+	default:
+		return "", false
+	}
 }
 
 func setOf(ids ...string) map[string]struct{} {

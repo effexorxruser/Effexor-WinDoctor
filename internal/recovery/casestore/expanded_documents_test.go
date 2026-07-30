@@ -42,7 +42,7 @@ func samplePlan() domain.RepairPlan {
 		RiskSummary:          "Read-only BCD inspection only.",
 		BackupRequirements:   []string{},
 		ApprovalRequirements: []string{},
-		Status:               "ready",
+		Status:               "draft",
 	}
 }
 
@@ -85,17 +85,26 @@ func sampleVerification() domain.VerificationReport {
 
 func sampleCoordinatorEvent() domain.CoordinatorEvent {
 	return domain.CoordinatorEvent{
-		SchemaName:            domain.SchemaCoordinatorEvent,
-		SchemaVersion:         domain.SchemaVersion,
-		EventID:               "cevt-111111111111111111111111",
-		CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
-		EventType:             domain.EventCaseCreated,
-		ActorType:             domain.ActorSystem,
-		OccurredAt:            "2026-07-27T12:05:00Z",
-		PreviousState:         string(domain.WorkflowCreated),
-		NextState:             string(domain.WorkflowEvidenceCollected),
-		ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
-		ReasonCode:            "legacy_import_committed",
+		SchemaName:    domain.SchemaCoordinatorEvent,
+		SchemaVersion: domain.SchemaVersion,
+		EventID:       "cevt-111111111111111111111111",
+		CaseID:        "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+		EventType:     domain.EventCaseCreated,
+		ActorType:     domain.ActorSystem,
+		OccurredAt:    "2026-07-27T12:05:00Z",
+		PreviousState: string(domain.WorkflowCreated),
+		NextState:     string(domain.WorkflowEvidenceCollected),
+		ReferencedDocumentIDs: []string{
+			"case-aaaaaaaaaaaaaaaaaaaaaaaa",
+			"target-disk-nvme0n1",
+			"evidence-bbbbbbbbbbbbbbbbbbbbbbbb",
+			"finding-cccccccccccccccccccccccc",
+			"plan-dddddddddddddddddddddddd",
+			"exec-eeeeeeeeeeeeeeeeeeeeeeee",
+			"verify-ffffffffffffffffffffffff",
+			domain.DocumentIDCaseWorkflowState,
+		},
+		ReasonCode: "legacy_import_committed",
 	}
 }
 
@@ -275,6 +284,15 @@ func TestBrokenVerificationReportRefRejected(t *testing.T) {
 	snap.VerificationReports[0].ExecutionID = "exec-000000000000000000000000"
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected broken verification execution ref rejection")
+	}
+}
+
+func TestIncompatibleWorkflowManifestRejected(t *testing.T) {
+	t.Parallel()
+	snap := enrichedSnapshot(t)
+	snap.Case.CurrentState = domain.CaseStateNew // incompatible with evidence_collected workflow
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected incompatible workflow/manifest pair rejection")
 	}
 }
 

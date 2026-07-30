@@ -1,0 +1,9 @@
+{
+  "schema_name": "case-workflow-state",
+  "schema_version": "1.0.0",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "evidence_collected",
+  "revision": 1,
+  "updated_at": "not-a-timestamp",
+  "last_transition_id": "cevt-111111111111111111111111"
+}

@@ -29,7 +29,8 @@
         "analysis_committed",
         "plan_committed",
         "case_failed",
-        "case_cancelled"
+        "case_cancelled",
+        "legacy_case_adopted"
       ]
     },
     "actor_type": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/actorType" },

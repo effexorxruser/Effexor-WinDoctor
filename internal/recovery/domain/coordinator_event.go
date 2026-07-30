@@ -31,13 +31,30 @@ const (
 	EventPlanCommitted     CoordinatorEventType = "plan_committed"
 	EventCaseFailed        CoordinatorEventType = "case_failed"
 	EventCaseCancelled     CoordinatorEventType = "case_cancelled"
+	EventLegacyCaseAdopted CoordinatorEventType = "legacy_case_adopted"
 )
 
 var coordinatorEventTypes = map[string]struct{}{
 	string(EventCaseCreated): {}, string(EventCaseLoaded): {}, string(EventEvidenceCommitted): {},
 	string(EventAnalysisCommitted): {}, string(EventPlanCommitted): {},
 	string(EventCaseFailed): {}, string(EventCaseCancelled): {},
+	string(EventLegacyCaseAdopted): {},
 }
+
+// StateChangingEventTypes advance WorkflowState.Revision.
+var StateChangingEventTypes = map[CoordinatorEventType]struct{}{
+	EventCaseCreated:       {},
+	EventLegacyCaseAdopted: {},
+	EventAnalysisCommitted: {},
+	EventPlanCommitted:     {},
+	EventCaseFailed:        {},
+	EventCaseCancelled:     {},
+}
+
+// DocumentIDCaseWorkflowState is the typed singleton identifier for the
+// case-workflow-state document when referenced from coordinator-event
+// referenced_document_ids.
+const DocumentIDCaseWorkflowState = "case-workflow-state"
 
 // CoordinatorEvent is an immutable audit record stored inside a Case snapshot.
 type CoordinatorEvent struct {

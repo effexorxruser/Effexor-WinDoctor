@@ -1,6 +1,8 @@
 package coordinator
 
 import (
+	"time"
+
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/casestore"
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 )
@@ -9,9 +11,14 @@ func (c *Coordinator) appendEvent(snap *casestore.Snapshot, ev domain.Coordinato
 	snap.CoordinatorEvents = append(append([]domain.CoordinatorEvent(nil), snap.CoordinatorEvents...), ev)
 }
 
-func (c *Coordinator) setWorkflow(snap *casestore.Snapshot, state domain.WorkflowStateName, eventID string, revision uint64, failure *domain.WorkflowFailure, activePlanID string) {
-	now := c.nowRFC3339()
+func (c *Coordinator) setWorkflow(snap *casestore.Snapshot, state domain.WorkflowStateName, eventID string, revision uint64, failure *domain.WorkflowFailure, activePlanID string) error {
+	caseState, err := domain.CaseStateForWorkflow(state)
+	if err != nil {
+		return err
+	}
+	now := c.monotonicNow(snap)
 	snap.Case.UpdatedAt = now
+	snap.Case.CurrentState = caseState
 	ws := &domain.CaseWorkflowState{
 		SchemaName:       domain.SchemaCaseWorkflowState,
 		SchemaVersion:    domain.SchemaVersion,
@@ -24,6 +31,31 @@ func (c *Coordinator) setWorkflow(snap *casestore.Snapshot, state domain.Workflo
 		Failure:          failure,
 	}
 	snap.WorkflowState = ws
+	return nil
+}
+
+// monotonicNow returns an RFC3339 timestamp not earlier than Case.CreatedAt,
+// Case.UpdatedAt, or WorkflowState.UpdatedAt. WinPE wall clock is not trusted alone.
+func (c *Coordinator) monotonicNow(snap *casestore.Snapshot) string {
+	now := c.clock.Now().UTC()
+	candidates := []time.Time{now}
+	for _, raw := range []string{snap.Case.CreatedAt, snap.Case.UpdatedAt} {
+		if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			candidates = append(candidates, t.UTC())
+		}
+	}
+	if snap.WorkflowState != nil {
+		if t, err := time.Parse(time.RFC3339, snap.WorkflowState.UpdatedAt); err == nil {
+			candidates = append(candidates, t.UTC())
+		}
+	}
+	max := candidates[0]
+	for _, t := range candidates[1:] {
+		if t.After(max) {
+			max = t
+		}
+	}
+	return max.Format(time.RFC3339)
 }
 
 func copySnapshot(src casestore.Snapshot) casestore.Snapshot {
@@ -72,4 +104,31 @@ func defaultReason(code, fallback string) string {
 		return fallback
 	}
 	return code
+}
+
+func fullDocumentRefs(snap casestore.Snapshot) []string {
+	refs := make([]string, 0, 8+len(snap.Targets)+len(snap.EvidenceBundles)+len(snap.Findings)+len(snap.RepairPlans))
+	refs = append(refs, snap.Case.CaseID)
+	for _, t := range snap.Targets {
+		refs = append(refs, t.TargetID)
+	}
+	for _, e := range snap.EvidenceBundles {
+		refs = append(refs, e.EvidenceID)
+	}
+	for _, f := range snap.Findings {
+		refs = append(refs, f.FindingID)
+	}
+	for _, p := range snap.RepairPlans {
+		refs = append(refs, p.PlanID)
+	}
+	for _, e := range snap.ExecutionEvents {
+		refs = append(refs, e.ExecutionID)
+	}
+	for _, v := range snap.VerificationReports {
+		refs = append(refs, v.VerificationID)
+	}
+	if snap.WorkflowState != nil {
+		refs = append(refs, domain.DocumentIDCaseWorkflowState)
+	}
+	return refs
 }

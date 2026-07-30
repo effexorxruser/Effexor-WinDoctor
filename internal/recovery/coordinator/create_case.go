@@ -10,6 +10,8 @@ import (
 )
 
 // CreateCase imports a diagnostic-report and commits the initial Case snapshot.
+// It requires that no Case head exists (create-only). A second CreateCase for
+// the same report hash returns ErrCaseAlreadyExists and does not append state.
 func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (CaseView, error) {
 	if len(req.DiagnosticReport) == 0 {
 		return CaseView{}, fmt.Errorf("%w: diagnostic report is required", ErrInvalidArgument)
@@ -28,6 +30,10 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 	snap := casestore.SnapshotFromImporterResult(result)
 	snap.Normalize()
 
+	if err := validateTransition(domain.WorkflowCreated, domain.WorkflowEvidenceCollected, actor, 0, 0); err != nil {
+		return CaseView{}, err
+	}
+
 	event, err := c.newAuditEvent(
 		snap.Case.CaseID,
 		domain.EventCaseCreated,
@@ -35,30 +41,40 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 		domain.WorkflowCreated,
 		domain.WorkflowEvidenceCollected,
 		"",
-		append([]string{snap.Case.CaseID}, snap.Case.TargetIDs...),
+		nil, // filled after workflow is attached
 		reason,
 		req.CommandID,
 	)
 	if err != nil {
 		return CaseView{}, err
 	}
-	if err := validateTransition(domain.WorkflowCreated, domain.WorkflowEvidenceCollected, actor, 0, 0); err != nil {
-		return CaseView{}, err
-	}
 	c.appendEvent(&snap, event)
-	c.setWorkflow(&snap, domain.WorkflowEvidenceCollected, event.EventID, 1, nil, "")
+	if err := c.setWorkflow(&snap, domain.WorkflowEvidenceCollected, event.EventID, 1, nil, ""); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	// Re-stamp event refs with the full document set including workflow singleton.
+	for i := range snap.CoordinatorEvents {
+		if snap.CoordinatorEvents[i].EventID == event.EventID {
+			snap.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(snap)
+			snap.CoordinatorEvents[i].OccurredAt = snap.Case.UpdatedAt
+			break
+		}
+	}
+
+	if err := snap.Validate(); err != nil {
+		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
 
 	info, err := c.store.Commit(ctx, casestore.CommitRequest{
-		Snapshot:         snap,
-		ArtifactProvider: req.ArtifactProvider,
-		Reason:           casestore.CommitReasonLegacyImport,
+		Snapshot:          snap,
+		ArtifactProvider:  req.ArtifactProvider,
+		Reason:            casestore.CommitReasonLegacyImport,
+		ParentExpectation: casestore.ExpectAbsentParent(),
 	})
 	if err != nil {
-		return CaseView{}, err
+		return CaseView{}, mapStoreWriteError(ctx, c, snap.Case.CaseID, "", err)
 	}
 
-	// Reload to return store-normalized view and fill resulting ids on a follow-up
-	// only when needed; resulting commit ids stay on CommitInfo for PR #17.
 	loaded, info2, err := c.store.LoadLatest(ctx, snap.Case.CaseID)
 	if err != nil {
 		return CaseView{}, err

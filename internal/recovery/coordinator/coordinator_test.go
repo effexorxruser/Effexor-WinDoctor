@@ -363,7 +363,8 @@ func TestConcurrentUpdatesOnlyOneSucceeds(t *testing.T) {
 		case err == nil:
 			success++
 		case errors.Is(err, coordinator.ErrCaseRevisionConflict),
-			errors.Is(err, casestore.ErrCaseLocked):
+			errors.Is(err, casestore.ErrCaseLocked),
+			errors.Is(err, coordinator.ErrCaseBusy):
 			lost++
 		default:
 			other++

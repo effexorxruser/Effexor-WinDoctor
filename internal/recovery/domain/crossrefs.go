@@ -10,8 +10,12 @@ type CrossRefs struct {
 	FindingIDs          map[string]struct{}
 	PlanIDs             map[string]struct{}
 	ExecutionIDs        map[string]struct{}
+	VerificationIDs     map[string]struct{}
 	ArtifactIDs         map[string]struct{}
 	CoordinatorEventIDs map[string]struct{}
+	// DocumentIDs is the full set of referencable document identifiers,
+	// including singleton typed IDs such as DocumentIDCaseWorkflowState.
+	DocumentIDs map[string]struct{}
 }
 
 func setOf(ids ...string) map[string]struct{} {
@@ -128,7 +132,7 @@ func (v VerificationReport) ValidateVerificationRefs(refs CrossRefs) error {
 	return nil
 }
 
-// ValidateWorkflowRefs checks workflow case/plan/execution refs.
+// ValidateWorkflowRefs checks workflow case/plan/execution/transition refs.
 func (w CaseWorkflowState) ValidateWorkflowRefs(refs CrossRefs) error {
 	if err := w.Validate(); err != nil {
 		return err
@@ -152,13 +156,26 @@ func (w CaseWorkflowState) ValidateWorkflowRefs(refs CrossRefs) error {
 	return nil
 }
 
-// ValidateCoordinatorEventRefs checks coordinator event case_id.
+// ValidateCoordinatorEventRefs checks coordinator event case_id and document refs.
 func (e CoordinatorEvent) ValidateCoordinatorEventRefs(refs CrossRefs) error {
 	if err := e.Validate(); err != nil {
 		return err
 	}
 	if err := requireRef("case_id", e.CaseID, refs.CaseIDs); err != nil {
 		return err
+	}
+	seen := make(map[string]struct{}, len(e.ReferencedDocumentIDs))
+	for i, id := range e.ReferencedDocumentIDs {
+		if id == "" {
+			return fmt.Errorf("referenced_document_ids[%d] must not be empty", i)
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("referenced_document_ids contains duplicate %q", id)
+		}
+		seen[id] = struct{}{}
+		if err := requireRef(fmt.Sprintf("referenced_document_ids[%d]", i), id, refs.DocumentIDs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
