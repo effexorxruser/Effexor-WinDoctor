@@ -14,6 +14,7 @@ runtime or GUI. Orchestration belongs to the Recovery Coordinator
 
 - Persist `CaseManifest`, `Target[]`, and `EvidenceBundle[]`
 - Persist `Finding[]`, `RepairPlan[]`, `ExecutionEvent[]`, `VerificationReport[]`
+- Persist optional `EvidenceAcquisitionRecord[]` (PR #18+)
 - Persist optional `case-workflow-state` and `coordinator-event[]` documents
 - Persist related artifact bytes
 - Publish new case state atomically
@@ -48,6 +49,7 @@ All staging and final renames stay inside one store root / filesystem.
         │           ├── case-workflow-state.json          (optional)
         │           ├── targets/<target_id>.json
         │           ├── evidence/<evidence_id>.json
+        │           ├── evidence-acquisitions/<acquisition_id>.json   (optional, PR #18+)
         │           ├── findings/<finding_id>.json
         │           ├── plans/<plan_id>.json
         │           ├── executions/<execution_id>.json
@@ -78,6 +80,23 @@ PR #17 additionally requires:
   workflow transitions exist;
 - workflow `occurred_at` ordering compares parsed RFC3339 instants (equal
   timestamps allowed; lexical string order is not authoritative).
+
+PR #18 adds `evidence-acquisitions/` and origin-coverage rules that remain
+compatible with PR #17 snapshots:
+
+- Snapshots **without** acquisition records keep PR #17 validation unchanged:
+  revision-1 `case_created` / `legacy_case_adopted` refs must cover **every**
+  Target and Evidence ID in the snapshot.
+- Snapshots **with** acquisition records: revision-1 refs cover **initial**
+  Target/Evidence IDs only; each post-create ID must appear in exactly one
+  `EvidenceAcquisitionRecord` (`added_target_ids` / `added_evidence_ids`).
+  Initial and added ID sets must be disjoint.
+- New Evidence or Target documents after Case creation require a matching
+  acquisition record; acquisition timestamps live on the record, not on
+  WorkflowState.
+
+See [`evidence-acquisition.md`](evidence-acquisition.md) for contract and
+Coordinator semantics.
 
 ## Immutable snapshots
 

@@ -10,15 +10,16 @@ import (
 
 // Snapshot is an in-memory recovery case state ready for persistence.
 type Snapshot struct {
-	Case                domain.CaseManifest
-	Targets             []domain.Target
-	EvidenceBundles     []domain.EvidenceBundle
-	Findings            []domain.Finding
-	RepairPlans         []domain.RepairPlan
-	ExecutionEvents     []domain.ExecutionEvent
-	VerificationReports []domain.VerificationReport
-	WorkflowState       *domain.CaseWorkflowState
-	CoordinatorEvents   []domain.CoordinatorEvent
+	Case                 domain.CaseManifest
+	Targets              []domain.Target
+	EvidenceBundles      []domain.EvidenceBundle
+	Findings             []domain.Finding
+	RepairPlans          []domain.RepairPlan
+	ExecutionEvents      []domain.ExecutionEvent
+	VerificationReports  []domain.VerificationReport
+	WorkflowState        *domain.CaseWorkflowState
+	CoordinatorEvents    []domain.CoordinatorEvent
+	EvidenceAcquisitions []domain.EvidenceAcquisitionRecord
 }
 
 // Options configures Store open-time dependencies.

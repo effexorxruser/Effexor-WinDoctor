@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/facts/windows-boot-topology-1.0.0/windows-boot-topology.schema.json",
+  "title": "Effexor Recovery windows boot topology 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "topology_id",
+    "case_id",
+    "resolver_id",
+    "resolver_version",
+    "source_commit_id",
+    "generated_at",
+    "firmware_mode",
+    "candidates",
+    "relations",
+    "selection",
+    "ambiguities",
+    "limitations",
+    "mutation_eligibility"
+  ],
+  "properties": {
+    "schema_name": { "const": "windows-boot-topology" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "topology_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/topologyId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "resolver_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.-]{1,127}$"
+    },
+    "resolver_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "source_commit_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/commitId" },
+    "generated_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "firmware_mode": {
+      "type": "string",
+      "enum": ["uefi", "bios", "unknown", "conflicting"]
+    },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "relations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relation" }
+    },
+    "selection": { "$ref": "#/$defs/selection" },
+    "ambiguities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ambiguity" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "mutation_eligibility": { "$ref": "#/$defs/mutationEligibility" }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "string",
+      "enum": ["proven", "strong_inference", "runtime_only", "ambiguous", "unknown"]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "role", "target_id", "confidence", "evidence_refs", "rationale_codes", "limitations"],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_.-]{1,127}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "windows_installation",
+            "windows_partition",
+            "system_disk",
+            "efi_system_partition",
+            "bcd_store",
+            "firmware",
+            "bitlocker_volume"
+          ]
+        },
+        "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+          "uniqueItems": true
+        },
+        "rationale_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]{1,127}$"
+          },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_id",
+        "relation_type",
+        "from_target_id",
+        "to_target_id",
+        "confidence",
+        "evidence_refs",
+        "rationale_codes",
+        "limitations"
+      ],
+      "properties": {
+        "relation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_.-]{1,127}$"
+        },
+        "relation_type": {
+          "type": "string",
+          "enum": [
+            "contains",
+            "hosts_windows",
+            "hosts_esp",
+            "contains_bcd_store",
+            "boot_store_for_windows",
+            "protected_by_bitlocker",
+            "health_record_for_disk",
+            "runtime_path_match",
+            "legacy_report_relation",
+            "technician_selected"
+          ]
+        },
+        "from_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "to_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+          "uniqueItems": true
+        },
+        "rationale_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]{1,127}$"
+          },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string", "enum": ["automatic", "technician", "none"] },
+        "windows_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "windows_partition_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "system_disk_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "esp_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+        "bcd_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "none" } }, "required": ["source"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["windows_target_id"] },
+                { "required": ["windows_partition_target_id"] },
+                { "required": ["system_disk_target_id"] },
+                { "required": ["esp_target_id"] },
+                { "required": ["bcd_target_id"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ambiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "target_ids", "evidence_refs"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]{1,127}$"
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "target_ids": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "mutationEligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "basis", "blockers"],
+      "properties": {
+        "eligible": { "type": "boolean" },
+        "basis": { "const": "diagnostic_evidence_only" },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "firmware_unknown",
+              "firmware_conflicting",
+              "firmware_not_uefi",
+              "disk_layout_unknown",
+              "disk_not_gpt",
+              "windows_missing",
+              "windows_ambiguous",
+              "windows_partition_unresolved",
+              "system_disk_unresolved",
+              "esp_missing",
+              "esp_ambiguous",
+              "bcd_missing",
+              "bcd_ambiguous",
+              "bitlocker_inaccessible",
+              "storage_health_unsafe",
+              "storage_health_unknown",
+              "evidence_incomplete",
+              "relation_runtime_only",
+              "unsupported_layout",
+              "technician_selection_required"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "eligible": { "const": true } }, "required": ["eligible"] },
+          "then": { "properties": { "blockers": { "maxItems": 0 } } }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/read-operation-result-1.0.0/read-operation-result.schema.json",
+  "title": "Effexor Recovery read operation result 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "request_id",
+    "case_id",
+    "operation_id",
+    "operation_version",
+    "target_id",
+    "observed_at",
+    "status",
+    "observation_source",
+    "source_evidence_ids",
+    "facts",
+    "limitations"
+  ],
+  "properties": {
+    "schema_name": { "const": "read-operation-result" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "request_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/readRequestId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "operation_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/operationId" },
+    "operation_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+    "observed_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "partial", "unavailable", "error"]
+    },
+    "observation_source": {
+      "type": "string",
+      "enum": ["case_snapshot", "case_store"]
+    },
+    "source_evidence_ids": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+      "uniqueItems": true
+    },
+    "facts": { "type": "object" },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    }
+  }
+}

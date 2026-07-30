@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/read-operation-request-1.0.0/read-operation-request.schema.json",
+  "title": "Effexor Recovery read operation request 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "request_id",
+    "case_id",
+    "operation_id",
+    "operation_version",
+    "target_id",
+    "parameters"
+  ],
+  "properties": {
+    "schema_name": { "const": "read-operation-request" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "request_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/readRequestId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "operation_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/operationId" },
+    "operation_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+    "parameters": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation_id": {
+            "enum": [
+              "windows.inspect_installation",
+              "boot.inspect_firmware_mode",
+              "boot.inspect_bcd_store",
+              "storage.inspect_disk_health",
+              "bitlocker.inspect_inventory",
+              "case.verify_store_integrity"
+            ]
+          }
+        },
+        "required": ["operation_id"]
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation_id": {
+            "enum": ["boot.inspect_efi_layout", "storage.inspect_partition_layout"]
+          }
+        },
+        "required": ["operation_id"]
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "disk_target_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

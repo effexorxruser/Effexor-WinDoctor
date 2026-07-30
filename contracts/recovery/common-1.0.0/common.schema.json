@@ -17,6 +17,11 @@
     "verificationId": { "type": "string", "pattern": "^verify-[a-f0-9]{24}$" },
     "artifactId": { "type": "string", "pattern": "^artifact-[a-f0-9]{24}$" },
     "coordinatorEventId": { "type": "string", "pattern": "^cevt-[a-f0-9]{24}$" },
+    "acquisitionId": { "type": "string", "pattern": "^acq-[a-f0-9]{24}$" },
+    "acquisitionRequestId": { "type": "string", "pattern": "^acqreq-[a-f0-9]{24}$" },
+    "topologyId": { "type": "string", "pattern": "^topology-[a-f0-9]{24}$" },
+    "readRequestId": { "type": "string", "pattern": "^readreq-[a-f0-9]{24}$" },
+    "commitId": { "type": "string", "pattern": "^commit-[a-f0-9]{24}$" },
     "relativePath": {
       "type": "string",
       "minLength": 1,

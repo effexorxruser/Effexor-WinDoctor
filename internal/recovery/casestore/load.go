@@ -273,6 +273,20 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 				return Snapshot{}, fmt.Errorf("%w: coordinator-event path %q does not match event_id %q", ErrIntegrity, d.RelativePath, ev.EventID)
 			}
 			snap.CoordinatorEvents = append(snap.CoordinatorEvents, ev)
+		case strings.HasPrefix(d.RelativePath, "evidence-acquisitions/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var acq domain.EvidenceAcquisitionRecord
+			if err := domain.DecodeAndValidateJSON(raw, &acq); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "evidence-acquisitions/" + acq.AcquisitionID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: evidence-acquisition path %q does not match acquisition_id %q", ErrIntegrity, d.RelativePath, acq.AcquisitionID)
+			}
+			snap.EvidenceAcquisitions = append(snap.EvidenceAcquisitions, acq)
 		default:
 			return Snapshot{}, fmt.Errorf("%w: unsupported document path %q", ErrIntegrity, d.RelativePath)
 		}
@@ -291,6 +305,9 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	})
 	sort.Slice(snap.CoordinatorEvents, func(i, j int) bool {
 		return snap.CoordinatorEvents[i].EventID < snap.CoordinatorEvents[j].EventID
+	})
+	sort.Slice(snap.EvidenceAcquisitions, func(i, j int) bool {
+		return snap.EvidenceAcquisitions[i].AcquisitionID < snap.EvidenceAcquisitions[j].AcquisitionID
 	})
 	if err := snap.Validate(); err != nil {
 		return Snapshot{}, err
@@ -511,6 +528,7 @@ func validateManifestDocumentPath(rel string) error {
 		{"executions/", reExecutionID, "execution"},
 		{"verifications/", reVerificationID, "verification"},
 		{"coordinator-events/", reCoordinatorEventID, "coordinator-event"},
+		{"evidence-acquisitions/", reAcquisitionID, "evidence-acquisition"},
 	}
 	for _, rule := range rules {
 		if strings.HasPrefix(rel, rule.prefix) && strings.HasSuffix(rel, ".json") {

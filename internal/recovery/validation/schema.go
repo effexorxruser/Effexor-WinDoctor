@@ -33,6 +33,10 @@ var contracts = []contractSpec{
 	{Dir: "verification-report-1.0.0", File: "verification-report.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/verification-report-1.0.0/verification-report.schema.json", Name: domain.SchemaVerificationReport},
 	{Dir: "case-workflow-state-1.0.0", File: "case-workflow-state.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/case-workflow-state-1.0.0/case-workflow-state.schema.json", Name: domain.SchemaCaseWorkflowState},
 	{Dir: "coordinator-event-1.0.0", File: "coordinator-event.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/coordinator-event-1.0.0/coordinator-event.schema.json", Name: domain.SchemaCoordinatorEvent},
+	{Dir: "evidence-acquisition-record-1.0.0", File: "evidence-acquisition-record.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/evidence-acquisition-record-1.0.0/evidence-acquisition-record.schema.json", Name: domain.SchemaEvidenceAcquisitionRecord},
+	{Dir: "facts/windows-boot-topology-1.0.0", File: "windows-boot-topology.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/facts/windows-boot-topology-1.0.0/windows-boot-topology.schema.json", Name: domain.SchemaWindowsBootTopology},
+	{Dir: "read-operation-request-1.0.0", File: "read-operation-request.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/read-operation-request-1.0.0/read-operation-request.schema.json", Name: domain.SchemaReadOperationRequest},
+	{Dir: "read-operation-result-1.0.0", File: "read-operation-result.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/read-operation-result-1.0.0/read-operation-result.schema.json", Name: domain.SchemaReadOperationResult},
 }
 
 var (

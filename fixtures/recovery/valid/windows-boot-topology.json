@@ -1,0 +1,31 @@
+{
+  "schema_name": "windows-boot-topology",
+  "schema_version": "1.0.0",
+  "topology_id": "topology-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "resolver_id": "effexor-recovery-target-resolver",
+  "resolver_version": "1.0.0",
+  "source_commit_id": "commit-111111111111111111111111",
+  "generated_at": "2026-07-27T12:10:00Z",
+  "firmware_mode": "uefi",
+  "candidates": [
+    {
+      "candidate_id": "cand.firmware.1",
+      "role": "firmware",
+      "target_id": "target-firmware-system",
+      "confidence": "proven",
+      "evidence_refs": ["evidence-bbbbbbbbbbbbbbbbbbbbbbbb"],
+      "rationale_codes": ["firmware_mode_consistent"],
+      "limitations": []
+    }
+  ],
+  "relations": [],
+  "selection": { "source": "none" },
+  "ambiguities": [],
+  "limitations": ["bcd_not_evaluated_in_fixture"],
+  "mutation_eligibility": {
+    "eligible": false,
+    "basis": "diagnostic_evidence_only",
+    "blockers": ["evidence_incomplete"]
+  }
+}

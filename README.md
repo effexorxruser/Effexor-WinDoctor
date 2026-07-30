@@ -43,6 +43,7 @@ Honest inventory of what this repository already ships today:
 - Win32 technician GUI shell (`effexorwinpe-shell`) for inspection and export;
 - Recovery Domain contracts 1.0.0 and legacy diagnostic-report importer;
 - Atomic Case Store library (immutable snapshots, append-only commits);
+- Recovery Coordinator library (`internal/recovery/coordinator`, PR #17): create/resume Case lifecycle, Findings/plan document persistence, early workflow transitions for the PR #17 state subset;
 - payload/driver manifests, safety rules, and CI.
 
 Existing executables and package paths remain legacy-compatible names. They are
@@ -51,9 +52,11 @@ contracts must remain compatible with.
 
 ## Current experimental / in-progress functionality
 
-- Recovery Coordinator library (`internal/recovery/coordinator`) — Draft PR #17:
-  create/resume Case lifecycle, Findings/plan document persistence, workflow
-  transitions for the early state subset. **No operation execution.**
+- Windows target resolver (`internal/recovery/targetresolver`), typed read-only
+  operation registry (`internal/recovery/operations/read`), and incremental
+  evidence acquisition via the Coordinator — Draft PR #18. **Read-only
+  observation against Case snapshot evidence; no mutation, no Boot Doctor, no
+  live Windows reinspection, no LLM authority.**
 - Experimental WinPE desktop-shell spike (optional UX track; see parallel work
   such as Draft PR #12). It must not block Recovery Core design.
 - Local-only third-party shell staging, when present, remains experimental and
@@ -79,13 +82,13 @@ Do **not** treat these as shipped:
 
 - Effexor Recovery Core as a complete product boundary;
 - typed mutation operations / boot repair execution;
-- Windows target resolver / boot topology;
 - Boot Doctor product vertical (planned first vertical only);
 - Recovery Agent v2 / planner / policy / approval / backup;
 - Effexor Recovery Hub;
 - Recovery Packs;
 - Effexor Recovery CLI as a distinct product surface;
 - WinPE/GUI wiring of Case Store + Coordinator;
+- live Windows reinspection via the read-only operation registry (PR #18 reads stored Case evidence only);
 - guaranteed desktop-shell UX in release images.
 
 See [`docs/release/v0.1.0-program.md`](docs/release/v0.1.0-program.md) for the
