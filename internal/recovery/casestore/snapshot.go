@@ -267,7 +267,7 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 	var changing []domain.CoordinatorEvent
 	for _, ev := range s.CoordinatorEvents {
 		byID[ev.EventID] = ev
-		_, isChanging := domain.StateChangingEventTypes[ev.EventType]
+		isChanging := domain.IsStateChangingCoordinatorEventType(ev.EventType)
 		if !isChanging {
 			if ev.WorkflowRevision != 0 {
 				return fmt.Errorf("%w: non-state-changing event %q must not set workflow_revision",
@@ -284,7 +284,7 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 		}
 		byRev[ev.WorkflowRevision] = ev
 		changing = append(changing, ev)
-		if err := validateEventTransitionPair(ev); err != nil {
+		if err := domain.ValidatePR17CoordinatorEventSemantics(ev); err != nil {
 			return err
 		}
 	}
@@ -312,55 +312,32 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 		return fmt.Errorf("%w: last transition next_state %q != workflow state %q",
 			ErrInvalidArgument, last.NextState, ws.State)
 	}
-	if _, ok := domain.StateChangingEventTypes[last.EventType]; !ok {
+	if !domain.IsStateChangingCoordinatorEventType(last.EventType) {
 		return fmt.Errorf("%w: last_transition_id event type %q is not state-changing",
 			ErrInvalidArgument, last.EventType)
+	}
+	first := byRev[1]
+	if first.EventType != domain.EventCaseCreated && first.EventType != domain.EventLegacyCaseAdopted {
+		return fmt.Errorf("%w: workflow revision 1 must be case_created or legacy_case_adopted", ErrInvalidArgument)
+	}
+	for rev := uint64(2); rev <= ws.Revision; rev++ {
+		prev := byRev[rev-1]
+		curr := byRev[rev]
+		if curr.PreviousState != prev.NextState {
+			return fmt.Errorf("%w: workflow revision %d previous_state %q does not continue revision %d next_state %q",
+				ErrInvalidArgument, rev, curr.PreviousState, rev-1, prev.NextState)
+		}
 	}
 	maxEv := byRev[ws.Revision]
 	if last.EventID != maxEv.EventID || last.WorkflowRevision != ws.Revision {
 		return fmt.Errorf("%w: last_transition_id %q is not the max workflow_revision event %q (revision %d)",
 			ErrInvalidArgument, ws.LastTransitionID, maxEv.EventID, ws.Revision)
 	}
-	return nil
-}
-
-func validateEventTransitionPair(ev domain.CoordinatorEvent) error {
-	if ev.EventType == domain.EventLegacyCaseAdopted {
-		if ev.PreviousState == "" && ev.NextState == string(domain.WorkflowEvidenceCollected) {
-			return nil
-		}
-		return fmt.Errorf("%w: legacy_case_adopted requires previous_state absent and next_state evidence_collected",
-			ErrInvalidArgument)
-	}
-	wantType, ok := eventTypeForTransition(domain.WorkflowStateName(ev.PreviousState), domain.WorkflowStateName(ev.NextState))
-	if !ok {
-		return fmt.Errorf("%w: event %s has invalid transition %q -> %q",
-			ErrInvalidArgument, ev.EventType, ev.PreviousState, ev.NextState)
-	}
-	if wantType != ev.EventType {
-		return fmt.Errorf("%w: event type %q does not match transition %q -> %q (want %q)",
-			ErrInvalidArgument, ev.EventType, ev.PreviousState, ev.NextState, wantType)
+	if maxEv.NextState != string(ws.State) {
+		return fmt.Errorf("%w: max workflow_revision next_state %q != workflow state %q",
+			ErrInvalidArgument, maxEv.NextState, ws.State)
 	}
 	return nil
-}
-
-func eventTypeForTransition(from, to domain.WorkflowStateName) (domain.CoordinatorEventType, bool) {
-	switch {
-	case from == domain.WorkflowCreated && to == domain.WorkflowEvidenceCollected:
-		return domain.EventCaseCreated, true
-	case from == domain.WorkflowEvidenceCollected && to == domain.WorkflowAnalyzed:
-		return domain.EventAnalysisCommitted, true
-	case from == domain.WorkflowAnalyzed && to == domain.WorkflowAnalyzed:
-		return domain.EventAnalysisCommitted, true
-	case from == domain.WorkflowAnalyzed && to == domain.WorkflowPlanProposed:
-		return domain.EventPlanCommitted, true
-	case to == domain.WorkflowFailed && (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed):
-		return domain.EventCaseFailed, true
-	case to == domain.WorkflowCancelled && (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed):
-		return domain.EventCaseCancelled, true
-	default:
-		return "", false
-	}
 }
 
 func setOf(ids ...string) map[string]struct{} {

@@ -41,16 +41,6 @@ var coordinatorEventTypes = map[string]struct{}{
 	string(EventLegacyCaseAdopted): {},
 }
 
-// StateChangingEventTypes advance WorkflowState.Revision and require workflow_revision.
-var StateChangingEventTypes = map[CoordinatorEventType]struct{}{
-	EventCaseCreated:       {},
-	EventLegacyCaseAdopted: {},
-	EventAnalysisCommitted: {},
-	EventPlanCommitted:     {},
-	EventCaseFailed:        {},
-	EventCaseCancelled:     {},
-}
-
 // DocumentIDCaseWorkflowState is the typed singleton identifier for the
 // case-workflow-state document when referenced from coordinator-event
 // referenced_document_ids.
@@ -112,8 +102,7 @@ func (e CoordinatorEvent) Validate() error {
 			return err
 		}
 	}
-	_, changing := StateChangingEventTypes[e.EventType]
-	if changing {
+	if IsStateChangingCoordinatorEventType(e.EventType) {
 		if e.WorkflowRevision == 0 {
 			return fmt.Errorf("workflow_revision is required and must be >= 1 for state-changing event %q", e.EventType)
 		}

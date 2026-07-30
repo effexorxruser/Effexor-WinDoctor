@@ -37,6 +37,7 @@ func TestWorkflowRevisionOrderingIndependentOfOccurredAt(t *testing.T) {
 			EventType: domain.EventAnalysisCommitted, ActorType: domain.ActorDeterministicAnalyzer,
 			OccurredAt: "2026-07-27T12:05:00Z", PreviousState: string(domain.WorkflowEvidenceCollected),
 			NextState: string(domain.WorkflowAnalyzed), WorkflowRevision: 2,
+			ExpectedCommitID: "commit-111111111111111111111111",
 			ReferencedDocumentIDs: []string{
 				snap.Case.CaseID,
 				"finding-cccccccccccccccccccccccc",
@@ -121,5 +122,39 @@ func TestLastTransitionNotMaxRevisionRejected(t *testing.T) {
 	snap.CoordinatorEvents = append(snap.CoordinatorEvents, ev2)
 	if err := snap.Validate(); err == nil {
 		t.Fatal("expected last_transition_id not-max rejection")
+	}
+}
+
+func TestWorkflowRevisionDisconnectedChainRejected(t *testing.T) {
+	t.Parallel()
+	snap := enrichedSnapshot(t)
+	snap.WorkflowState.Revision = 2
+	snap.Case.CurrentState = domain.CaseStateDiagnosed
+	snap.WorkflowState.State = domain.WorkflowAnalyzed
+	snap.WorkflowState.LastTransitionID = "cevt-222222222222222222222222"
+	ev2 := sampleCoordinatorEvent()
+	ev2.EventID = "cevt-222222222222222222222222"
+	ev2.EventType = domain.EventAnalysisCommitted
+	ev2.PreviousState = string(domain.WorkflowPlanProposed)
+	ev2.NextState = string(domain.WorkflowAnalyzed)
+	ev2.WorkflowRevision = 2
+	ev2.ExpectedCommitID = "commit-111111111111111111111111"
+	ev2.ReferencedDocumentIDs = []string{snap.Case.CaseID, "finding-cccccccccccccccccccccccc", domain.DocumentIDCaseWorkflowState}
+	ev2.ReasonCode = "analysis_committed"
+	snap.CoordinatorEvents = append(snap.CoordinatorEvents, ev2)
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected disconnected chain rejection")
+	}
+}
+
+func TestWorkflowRevisionInvalidFirstEventRejected(t *testing.T) {
+	t.Parallel()
+	snap := enrichedSnapshot(t)
+	snap.CoordinatorEvents[0].EventType = domain.EventAnalysisCommitted
+	snap.CoordinatorEvents[0].PreviousState = string(domain.WorkflowEvidenceCollected)
+	snap.CoordinatorEvents[0].NextState = string(domain.WorkflowAnalyzed)
+	snap.CoordinatorEvents[0].ExpectedCommitID = "commit-111111111111111111111111"
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected invalid first event rejection")
 	}
 }

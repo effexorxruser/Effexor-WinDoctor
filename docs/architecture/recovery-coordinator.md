@@ -36,9 +36,10 @@ create for the same report hash returns `ErrCaseAlreadyExists` and does not
 append snapshots or reset workflow. Use `AdoptLegacyCase` to migrate legacy
 snapshots; never treat `CreateCase` as migration.
 
-`AdoptLegacyCase` is allowed only when WorkflowState is absent and
-CoordinatorEvents / Findings / RepairPlans / ExecutionEvents /
-VerificationReports are empty, with Targets and Evidence present.
+`AdoptLegacyCase` is allowed only when WorkflowState is absent,
+`CaseManifest.current_state == SNAPSHOTTED`, CoordinatorEvents / Findings /
+RepairPlans / ExecutionEvents / VerificationReports are empty, and Targets plus
+Evidence are present.
 
 `CommitPlan` accepts only `status=draft` with at least one finding_ref and one
 step (Coordinator policy for PR #17; RepairPlan contract unchanged).
@@ -81,11 +82,18 @@ no separate mutable log.
 
 State-changing events carry explicit `workflow_revision` (integer ≥ 1):
 
+- revision `1` must be `case_created` or `legacy_case_adopted`;
+- for each revision `2..N`, `current.previous_state == previous.next_state`;
 - revisions are unique and form the contiguous sequence `1..WorkflowState.Revision`;
 - `last_transition_id` must reference the event with the **maximum** revision;
+- the maximum revision `next_state` must equal `WorkflowState.State`;
 - ordering does **not** depend on `occurred_at` or `event_id`.
 
 Non-state-changing events must omit `workflow_revision`.
+
+The immutable event semantics table is shared by Coordinator writes and Case
+Store snapshot validation, so actor authority and state-transition rules cannot
+drift between writer and reader.
 
 ### Event-specific refs
 
@@ -108,6 +116,14 @@ Findings referenced by audit are append-only across CommitAnalysis calls:
 - duplicate FindingID with identical canonical content is a no-op;
 - duplicate FindingID with divergent content is rejected.
 
+### Immutable RepairPlans
+
+`RepairPlan` documents are immutable by `plan_id`:
+
+- a new `plan_id` appends;
+- reusing the same `plan_id` with identical canonical JSON is a no-op;
+- reusing the same `plan_id` with divergent content is rejected.
+
 ### Resulting IDs
 
 Authoritative `snapshot_id` / `commit_id` for a write live on Case Store
@@ -119,6 +135,12 @@ PR #17 actors permitted to transition state:
 - `system`
 - `technician`
 - `deterministic_analyzer`
+
+State-changing audit `expected_commit_id` policy:
+
+- `case_created` at revision `1`: absent;
+- `legacy_case_adopted` at revision `1`: required;
+- revisions `> 1`: required.
 
 ## Timestamps
 

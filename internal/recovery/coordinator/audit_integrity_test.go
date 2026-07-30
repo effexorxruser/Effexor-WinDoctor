@@ -190,7 +190,7 @@ func TestWorkflowRevisionWithSameOccurredAtAndReverseEventIDs(t *testing.T) {
 	}
 	times := map[string]string{}
 	for _, ev := range b.Snapshot.CoordinatorEvents {
-		if _, ok := domain.StateChangingEventTypes[ev.EventType]; ok {
+		if domain.IsStateChangingCoordinatorEventType(ev.EventType) {
 			times[ev.EventID] = ev.OccurredAt
 		}
 	}
@@ -214,4 +214,75 @@ func (s *scriptedIDs) NewID(prefix string) (string, error) {
 	id := s.values[s.i]
 	s.i++
 	return id, nil
+}
+
+func TestCommitPlanIdenticalPlanIDNoOp(t *testing.T) {
+	t.Parallel()
+	c, st, _ := openCoord(t)
+	view := mustCreate(t, c)
+	caseID := view.Snapshot.Case.CaseID
+	ev := view.Snapshot.EvidenceBundles[0].EvidenceID
+	tg := view.Snapshot.Targets[0].TargetID
+	analyzed, err := c.CommitAnalysis(context.Background(), coordinator.CommitAnalysisRequest{
+		CaseID: caseID, ExpectedCommitID: view.CommitInfo.CommitID,
+		Findings: []domain.Finding{sampleFinding(caseID, ev, tg)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := samplePlan(caseID, "finding-cccccccccccccccccccccccc", tg)
+	snap := analyzed.Snapshot
+	snap.RepairPlans = []domain.RepairPlan{plan}
+	info, err := st.Commit(context.Background(), casestore.CommitRequest{
+		Snapshot:          snap,
+		Reason:            casestore.CommitReasonCaseSnapshot,
+		ParentExpectation: casestore.ExpectParentCommit(analyzed.CommitInfo.CommitID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned, err := c.CommitPlan(context.Background(), coordinator.CommitPlanRequest{
+		CaseID: caseID, ExpectedCommitID: info.CommitID, Plan: plan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planned.Snapshot.RepairPlans) != 1 {
+		t.Fatalf("want 1 plan, got %d", len(planned.Snapshot.RepairPlans))
+	}
+}
+
+func TestCommitPlanDivergentPlanIDRejected(t *testing.T) {
+	t.Parallel()
+	c, st, _ := openCoord(t)
+	view := mustCreate(t, c)
+	caseID := view.Snapshot.Case.CaseID
+	ev := view.Snapshot.EvidenceBundles[0].EvidenceID
+	tg := view.Snapshot.Targets[0].TargetID
+	findings := []domain.Finding{sampleFinding(caseID, ev, tg)}
+	analyzed, err := c.CommitAnalysis(context.Background(), coordinator.CommitAnalysisRequest{
+		CaseID: caseID, ExpectedCommitID: view.CommitInfo.CommitID, Findings: findings,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing := samplePlan(caseID, "finding-cccccccccccccccccccccccc", tg)
+	snap := analyzed.Snapshot
+	snap.RepairPlans = []domain.RepairPlan{existing}
+	info, err := st.Commit(context.Background(), casestore.CommitRequest{
+		Snapshot:          snap,
+		Reason:            casestore.CommitReasonCaseSnapshot,
+		ParentExpectation: casestore.ExpectParentCommit(analyzed.CommitInfo.CommitID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	divergent := existing
+	divergent.RiskSummary = "changed summary"
+	_, err = c.CommitPlan(context.Background(), coordinator.CommitPlanRequest{
+		CaseID: caseID, ExpectedCommitID: info.CommitID, Plan: divergent,
+	})
+	if !errors.Is(err, coordinator.ErrInvalidArgument) {
+		t.Fatalf("want ErrInvalidArgument, got %v", err)
+	}
 }

@@ -18,9 +18,6 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 	}
 	actor := defaultActor(req.Actor, domain.ActorSystem)
 	reason := defaultReason(req.ReasonCode, "legacy_import_committed")
-	if _, ok := allowedPR17Actors[actor]; !ok {
-		return CaseView{}, &TransitionError{Reason: "actor_not_allowed", Message: fmt.Sprintf("actor %s is not permitted", actor)}
-	}
 
 	result, err := c.importer.ImportJSON(req.DiagnosticReport, legacyreport.Options{SourceArtifact: req.SourceArtifact})
 	if err != nil {

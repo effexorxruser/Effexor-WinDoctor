@@ -212,3 +212,40 @@ func TestAdoptLegacyRejectsCoordinatorEvents(t *testing.T) {
 		t.Fatalf("want ErrLegacyAdoptionRejected, got %v", err)
 	}
 }
+
+func TestAdoptLegacyRejectsNonSnapshottedCurrentState(t *testing.T) {
+	t.Parallel()
+	states := []domain.CaseState{
+		domain.CaseStateDiagnosed,
+		domain.CaseStatePlanned,
+		domain.CaseStateFailed,
+		domain.CaseStateCancelled,
+	}
+	for _, state := range states {
+		state := state
+		t.Run(string(state), func(t *testing.T) {
+			t.Parallel()
+			c, st, _ := openCoord(t)
+			raw := reportFixture(t)
+			imported, err := coordinator.DefaultImporter{}.ImportJSON(raw, legacyreport.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap := casestore.SnapshotFromImporterResult(imported)
+			snap.Case.CurrentState = state
+			info, err := st.Commit(context.Background(), casestore.CommitRequest{
+				Snapshot: snap,
+				Reason:   casestore.CommitReasonLegacyImport,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.AdoptLegacyCase(context.Background(), coordinator.AdoptLegacyCaseRequest{
+				CaseID: snap.Case.CaseID, ExpectedCommitID: info.CommitID, Actor: domain.ActorSystem,
+			})
+			if !errors.Is(err, coordinator.ErrLegacyAdoptionRejected) {
+				t.Fatalf("want ErrLegacyAdoptionRejected, got %v", err)
+			}
+		})
+	}
+}

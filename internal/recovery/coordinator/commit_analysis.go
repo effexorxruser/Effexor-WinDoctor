@@ -198,17 +198,11 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 	}
 
 	next := copySnapshot(snap)
-	replaced := false
-	for i, p := range next.RepairPlans {
-		if p.PlanID == plan.PlanID {
-			next.RepairPlans[i] = plan
-			replaced = true
-			break
-		}
+	mergedPlans, err := mergePlansImmutable(next.RepairPlans, plan)
+	if err != nil {
+		return CaseView{}, err
 	}
-	if !replaced {
-		next.RepairPlans = append(next.RepairPlans, plan)
-	}
+	next.RepairPlans = mergedPlans
 
 	if err := validateTransition(from, to, actor, len(next.Findings), len(next.RepairPlans)); err != nil {
 		te, ok := err.(*TransitionError)

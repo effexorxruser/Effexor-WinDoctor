@@ -65,5 +65,45 @@
       "maxLength": 128,
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "case_created",
+              "analysis_committed",
+              "plan_committed",
+              "case_failed",
+              "case_cancelled",
+              "legacy_case_adopted"
+            ]
+          }
+        },
+        "required": ["event_type"]
+      },
+      "then": {
+        "required": ["workflow_revision"]
+      },
+      "else": {
+        "not": {
+          "required": ["workflow_revision"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": { "const": "case_created" }
+        },
+        "required": ["event_type"]
+      },
+      "then": {
+        "not": {
+          "required": ["expected_commit_id"]
+        }
+      }
+    }
+  ]
 }

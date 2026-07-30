@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
@@ -228,6 +229,161 @@ func TestInvalidFixturesRejected(t *testing.T) {
 			t.Parallel()
 			if err := test.run(readFixture(t, "invalid", test.file)); err == nil {
 				t.Fatal("expected rejection")
+			}
+		})
+	}
+}
+
+func TestValidatePR17CoordinatorEventSemanticsRejectsDisallowedActors(t *testing.T) {
+	t.Parallel()
+	actors := []domain.ActorType{
+		domain.ActorLLMAdvisor,
+		domain.ActorPolicy,
+		domain.ActorExecutor,
+		domain.ActorVerifier,
+	}
+	for _, actor := range actors {
+		actor := actor
+		t.Run(string(actor), func(t *testing.T) {
+			t.Parallel()
+			ev := domain.CoordinatorEvent{
+				SchemaName:            domain.SchemaCoordinatorEvent,
+				SchemaVersion:         domain.SchemaVersion,
+				EventID:               "cevt-111111111111111111111111",
+				CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+				EventType:             domain.EventAnalysisCommitted,
+				ActorType:             actor,
+				OccurredAt:            "2026-07-27T12:05:00Z",
+				PreviousState:         string(domain.WorkflowEvidenceCollected),
+				NextState:             string(domain.WorkflowAnalyzed),
+				ExpectedCommitID:      "commit-111111111111111111111111",
+				WorkflowRevision:      2,
+				ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
+				ReasonCode:            "analysis_committed",
+			}
+			if err := domain.ValidatePR17CoordinatorEventSemantics(ev); err == nil {
+				t.Fatal("expected disallowed actor rejection")
+			}
+		})
+	}
+}
+
+func TestIsStateChangingCoordinatorEventTypeConcurrent(t *testing.T) {
+	t.Parallel()
+	types := []domain.CoordinatorEventType{
+		domain.EventCaseCreated,
+		domain.EventCaseLoaded,
+		domain.EventEvidenceCommitted,
+		domain.EventAnalysisCommitted,
+		domain.EventPlanCommitted,
+		domain.EventCaseFailed,
+		domain.EventCaseCancelled,
+		domain.EventLegacyCaseAdopted,
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		for _, eventType := range types {
+			wg.Add(1)
+			go func(eventType domain.CoordinatorEventType) {
+				defer wg.Done()
+				_ = domain.IsStateChangingCoordinatorEventType(eventType)
+			}(eventType)
+		}
+	}
+	wg.Wait()
+}
+
+func TestValidatePR17CoordinatorEventSemanticsExpectedCommitPolicy(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		ev      domain.CoordinatorEvent
+		wantErr bool
+	}{
+		{
+			name: "case_created forbids expected_commit",
+			ev: domain.CoordinatorEvent{
+				SchemaName:            domain.SchemaCoordinatorEvent,
+				SchemaVersion:         domain.SchemaVersion,
+				EventID:               "cevt-111111111111111111111111",
+				CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+				EventType:             domain.EventCaseCreated,
+				ActorType:             domain.ActorSystem,
+				OccurredAt:            "2026-07-27T12:05:00Z",
+				PreviousState:         string(domain.WorkflowCreated),
+				NextState:             string(domain.WorkflowEvidenceCollected),
+				ExpectedCommitID:      "commit-111111111111111111111111",
+				WorkflowRevision:      1,
+				ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
+				ReasonCode:            "legacy_import_committed",
+			},
+			wantErr: true,
+		},
+		{
+			name: "legacy adoption requires expected_commit",
+			ev: domain.CoordinatorEvent{
+				SchemaName:            domain.SchemaCoordinatorEvent,
+				SchemaVersion:         domain.SchemaVersion,
+				EventID:               "cevt-111111111111111111111111",
+				CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+				EventType:             domain.EventLegacyCaseAdopted,
+				ActorType:             domain.ActorSystem,
+				OccurredAt:            "2026-07-27T12:05:00Z",
+				NextState:             string(domain.WorkflowEvidenceCollected),
+				WorkflowRevision:      1,
+				ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
+				ReasonCode:            "legacy_case_adopted",
+			},
+			wantErr: true,
+		},
+		{
+			name: "revision greater than one requires expected_commit",
+			ev: domain.CoordinatorEvent{
+				SchemaName:            domain.SchemaCoordinatorEvent,
+				SchemaVersion:         domain.SchemaVersion,
+				EventID:               "cevt-111111111111111111111111",
+				CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+				EventType:             domain.EventAnalysisCommitted,
+				ActorType:             domain.ActorSystem,
+				OccurredAt:            "2026-07-27T12:05:00Z",
+				PreviousState:         string(domain.WorkflowEvidenceCollected),
+				NextState:             string(domain.WorkflowAnalyzed),
+				WorkflowRevision:      2,
+				ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
+				ReasonCode:            "analysis_committed",
+			},
+			wantErr: true,
+		},
+		{
+			name: "analysis with expected_commit valid",
+			ev: domain.CoordinatorEvent{
+				SchemaName:            domain.SchemaCoordinatorEvent,
+				SchemaVersion:         domain.SchemaVersion,
+				EventID:               "cevt-111111111111111111111111",
+				CaseID:                "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+				EventType:             domain.EventAnalysisCommitted,
+				ActorType:             domain.ActorDeterministicAnalyzer,
+				OccurredAt:            "2026-07-27T12:05:00Z",
+				PreviousState:         string(domain.WorkflowEvidenceCollected),
+				NextState:             string(domain.WorkflowAnalyzed),
+				ExpectedCommitID:      "commit-111111111111111111111111",
+				WorkflowRevision:      2,
+				ReferencedDocumentIDs: []string{"case-aaaaaaaaaaaaaaaaaaaaaaaa"},
+				ReasonCode:            "analysis_committed",
+			},
+			wantErr: false,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := domain.ValidatePR17CoordinatorEventSemantics(test.ev)
+			if test.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
