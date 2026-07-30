@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
@@ -105,7 +106,10 @@ func (v View) Disk() (DiskPayload, error) {
 		return DiskPayload{}, err
 	}
 	out := DiskPayload{Raw: append(json.RawMessage(nil), v.Envelope.Payload...)}
-	if n, ok := asInt64(payload["disk_number"]); ok {
+	// diagnostic-report 1.3.0 disk payload uses "number"; accept legacy alias conservatively.
+	if n, ok := asInt64(payload["number"]); ok {
+		out.DiskNumber = &n
+	} else if n, ok := asInt64(payload["disk_number"]); ok {
 		out.DiskNumber = &n
 	}
 	if s, ok := payload["partition_style"].(string); ok {
@@ -166,11 +170,22 @@ func (v View) WindowsInstallation() (WindowsInstallationPayload, error) {
 		return WindowsInstallationPayload{}, err
 	}
 	out := WindowsInstallationPayload{Raw: append(json.RawMessage(nil), v.Envelope.Payload...)}
-	if s, ok := payload["root_path"].(string); ok {
+	// diagnostic-report 1.3.0 uses "root"; keep root_path only as conservative alias.
+	if s, ok := payload["root"].(string); ok {
+		out.RootPath = s
+	} else if s, ok := payload["root_path"].(string); ok {
 		out.RootPath = s
 	}
-	if s, ok := payload["version"].(string); ok {
-		out.Version = s
+	switch ver := payload["version"].(type) {
+	case string:
+		out.Version = ver
+	case map[string]any:
+		for _, key := range []string{"product_name", "display_version", "raw_product_name", "build"} {
+			if s, ok := ver[key].(string); ok && s != "" {
+				out.Version = s
+				break
+			}
+		}
 	}
 	return out, nil
 }
@@ -261,6 +276,13 @@ func decodePayload(raw json.RawMessage, dst any) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(dst); err != nil {
+		return fmt.Errorf("%w: %v", ErrMalformedEvidence, err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("%w: trailing JSON content", ErrMalformedEvidence)
+		}
 		return fmt.Errorf("%w: %v", ErrMalformedEvidence, err)
 	}
 	return nil

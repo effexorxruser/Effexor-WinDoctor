@@ -77,16 +77,16 @@ func (c *Coordinator) ExecuteReadOperation(ctx context.Context, req ExecuteReadO
 		params = json.RawMessage(`{}`)
 	}
 
-	snap, info, err := c.loadExpected(ctx, req.CaseID, req.ExpectedCommitID)
+	canonicalReq, err := canonicalReadAcquisitionRequest(req.CaseID, req.OperationID, req.OperationVersion, req.TargetID, params, nil)
+	if err != nil {
+		return ExecuteReadOperationResult{}, err
+	}
+
+	snap, info, err := c.loadLatestVerified(ctx, req.CaseID)
 	if err != nil {
 		return ExecuteReadOperationResult{}, err
 	}
 	if err := requireEvidenceCollected(snap, req.CaseID); err != nil {
-		return ExecuteReadOperationResult{}, err
-	}
-
-	canonicalReq, err := canonicalReadAcquisitionRequest(req.CaseID, req.OperationID, req.OperationVersion, req.TargetID, params, nil)
-	if err != nil {
 		return ExecuteReadOperationResult{}, err
 	}
 	if existing, ok := findAcquisition(snap, req.RequestID); ok {
@@ -115,6 +115,16 @@ func (c *Coordinator) ExecuteReadOperation(ctx context.Context, req ExecuteReadO
 			Evidence:    ev,
 			Idempotent:  true,
 		}, nil
+	}
+	if req.ExpectedCommitID == "" {
+		return ExecuteReadOperationResult{}, fmt.Errorf("%w: expected_commit_id is required", ErrInvalidArgument)
+	}
+	if info.CommitID != req.ExpectedCommitID {
+		return ExecuteReadOperationResult{}, &RevisionConflictError{
+			CaseID:           req.CaseID,
+			ExpectedCommitID: req.ExpectedCommitID,
+			ActualCommitID:   info.CommitID,
+		}
 	}
 
 	readReqID := derivedReadRequestID(req.RequestID)
@@ -208,16 +218,16 @@ func (c *Coordinator) ResolveWindowsBootTopology(ctx context.Context, req Resolv
 		return ResolveWindowsBootTopologyResult{}, err
 	}
 
-	snap, info, err := c.loadExpected(ctx, req.CaseID, req.ExpectedCommitID)
+	canonicalReq, err := canonicalTopologyAcquisitionRequest(req.CaseID, req.Selection)
+	if err != nil {
+		return ResolveWindowsBootTopologyResult{}, err
+	}
+
+	snap, info, err := c.loadLatestVerified(ctx, req.CaseID)
 	if err != nil {
 		return ResolveWindowsBootTopologyResult{}, err
 	}
 	if err := requireEvidenceCollected(snap, req.CaseID); err != nil {
-		return ResolveWindowsBootTopologyResult{}, err
-	}
-
-	canonicalReq, err := canonicalTopologyAcquisitionRequest(req.CaseID, req.Selection)
-	if err != nil {
 		return ResolveWindowsBootTopologyResult{}, err
 	}
 	if existing, ok := findAcquisition(snap, req.RequestID); ok {
@@ -246,6 +256,16 @@ func (c *Coordinator) ResolveWindowsBootTopology(ctx context.Context, req Resolv
 			Evidence:    ev,
 			Idempotent:  true,
 		}, nil
+	}
+	if req.ExpectedCommitID == "" {
+		return ResolveWindowsBootTopologyResult{}, fmt.Errorf("%w: expected_commit_id is required", ErrInvalidArgument)
+	}
+	if info.CommitID != req.ExpectedCommitID {
+		return ResolveWindowsBootTopologyResult{}, &RevisionConflictError{
+			CaseID:           req.CaseID,
+			ExpectedCommitID: req.ExpectedCommitID,
+			ActualCommitID:   info.CommitID,
+		}
 	}
 
 	nowRaw := c.monotonicNow(&snap)

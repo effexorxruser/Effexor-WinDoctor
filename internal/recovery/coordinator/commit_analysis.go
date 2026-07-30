@@ -49,11 +49,28 @@ func mapStoreWriteError(ctx context.Context, c *Coordinator, caseID, expectedCom
 }
 
 func (c *Coordinator) loadExpected(ctx context.Context, caseID, expectedCommitID string) (casestore.Snapshot, casestore.CommitInfo, error) {
-	if caseID == "" {
-		return casestore.Snapshot{}, casestore.CommitInfo{}, fmt.Errorf("%w: case_id is required", ErrInvalidArgument)
-	}
 	if expectedCommitID == "" {
 		return casestore.Snapshot{}, casestore.CommitInfo{}, fmt.Errorf("%w: expected_commit_id is required", ErrInvalidArgument)
+	}
+	snap, info, err := c.loadLatestVerified(ctx, caseID)
+	if err != nil {
+		return casestore.Snapshot{}, casestore.CommitInfo{}, err
+	}
+	if info.CommitID != expectedCommitID {
+		return casestore.Snapshot{}, casestore.CommitInfo{}, &RevisionConflictError{
+			CaseID:           caseID,
+			ExpectedCommitID: expectedCommitID,
+			ActualCommitID:   info.CommitID,
+		}
+	}
+	return snap, info, nil
+}
+
+// loadLatestVerified verifies Case Store integrity then loads the current head.
+// It does not enforce ExpectedCommitID; callers apply CAS after idempotency checks.
+func (c *Coordinator) loadLatestVerified(ctx context.Context, caseID string) (casestore.Snapshot, casestore.CommitInfo, error) {
+	if caseID == "" {
+		return casestore.Snapshot{}, casestore.CommitInfo{}, fmt.Errorf("%w: case_id is required", ErrInvalidArgument)
 	}
 	report, err := c.store.Verify(ctx, caseID)
 	if err != nil {
@@ -71,13 +88,6 @@ func (c *Coordinator) loadExpected(ctx context.Context, caseID, expectedCommitID
 			return casestore.Snapshot{}, casestore.CommitInfo{}, fmt.Errorf("%w: %v", ErrCaseCorrupt, err)
 		}
 		return casestore.Snapshot{}, casestore.CommitInfo{}, err
-	}
-	if info.CommitID != expectedCommitID {
-		return casestore.Snapshot{}, casestore.CommitInfo{}, &RevisionConflictError{
-			CaseID:           caseID,
-			ExpectedCommitID: expectedCommitID,
-			ActualCommitID:   info.CommitID,
-		}
 	}
 	return snap, info, nil
 }

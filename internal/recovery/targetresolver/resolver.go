@@ -123,7 +123,7 @@ func Resolve(ctx context.Context, request Request) (Result, error) {
 	if len(windowsCands) == 0 {
 		blockers = append(blockers, "windows_missing")
 	}
-	if len(windowsCands) > 1 && request.Selection == nil {
+	if countRole(windowsCands, domain.RoleWindowsInstallation) > 1 && request.Selection == nil {
 		blockers = append(blockers, "windows_ambiguous")
 	}
 	if len(espCands) == 0 {
@@ -194,11 +194,17 @@ func Resolve(ctx context.Context, request Request) (Result, error) {
 		return Result{}, fmt.Errorf("topology: %w", err)
 	}
 
+	identityTopo := topo
+	identityTopo.GeneratedAt = ""
+	identityFacts, err := json.Marshal(identityTopo)
+	if err != nil {
+		return Result{}, err
+	}
 	facts, err := json.Marshal(topo)
 	if err != nil {
 		return Result{}, err
 	}
-	evidenceID := evidenceIDFor(request.Snapshot.Case.CaseID, request.CommitID, selection, idx.allEvidenceIDs(), facts)
+	evidenceID := evidenceIDFor(request.Snapshot.Case.CaseID, request.CommitID, selection, idx.allEvidenceIDs(), identityFacts)
 	evidenceLim := append([]string(nil), limitations...)
 	if evidenceLim == nil {
 		evidenceLim = []string{}
@@ -557,8 +563,11 @@ func resolveBitLocker(idx *index) ([]domain.TopologyAmbiguity, []string, []strin
 		if err != nil {
 			continue
 		}
-		status := strings.ToLower(bl.LockStatus + " " + bl.ProtectionStatus)
-		if strings.Contains(status, "lock") || strings.Contains(status, "inaccessible") {
+		status := strings.ToLower(strings.TrimSpace(bl.LockStatus))
+		protection := strings.ToLower(strings.TrimSpace(bl.ProtectionStatus))
+		locked := status == "locked" || protection == "locked"
+		inaccessible := status == "inaccessible" || protection == "inaccessible"
+		if locked || inaccessible {
 			block = append(block, "bitlocker_inaccessible")
 			amb = append(amb, domain.TopologyAmbiguity{
 				Code: "bitlocker_inaccessible", Message: "bitlocker volume is locked or inaccessible",
@@ -624,7 +633,7 @@ func applySelection(
 	sel *TechnicianSelection,
 ) (domain.TopologySelection, []string, []domain.TopologyAmbiguity, error) {
 	if sel != nil {
-		out, err := validateTechnicianSelection(idx, sel)
+		out, err := validateTechnicianSelection(idx, relations, sel)
 		if err != nil {
 			return domain.TopologySelection{}, nil, nil, err
 		}
@@ -633,7 +642,7 @@ func applySelection(
 	if firmware != domain.FirmwareUEFI {
 		return domain.TopologySelection{Source: domain.SelectionNone}, []string{"technician_selection_required"}, nil, nil
 	}
-	if len(windows) != 1 || countRole(windows, domain.RoleWindowsInstallation) != 1 {
+	if countRole(windows, domain.RoleWindowsInstallation) != 1 {
 		return domain.TopologySelection{Source: domain.SelectionNone}, nil, nil, nil
 	}
 	win := firstRole(windows, domain.RoleWindowsInstallation)
@@ -662,17 +671,25 @@ func applySelection(
 	if hasAmbiguousConfidence(relations) {
 		return domain.TopologySelection{Source: domain.SelectionNone}, []string{"evidence_incomplete"}, nil, nil
 	}
-	return domain.TopologySelection{
+	candidate := domain.TopologySelection{
 		Source:                   domain.SelectionAutomatic,
 		WindowsTargetID:          win.TargetID,
 		WindowsPartitionTargetID: part.TargetID,
 		SystemDiskTargetID:       disk.TargetID,
 		ESPTargetID:              espCand.TargetID,
 		BCDTargetID:              bcdID,
-	}, nil, nil, nil
+	}
+	if err := requireConnectedTopology(relations, candidate); err != nil {
+		return domain.TopologySelection{Source: domain.SelectionNone}, []string{"unsupported_layout"}, []domain.TopologyAmbiguity{{
+			Code: "unsupported_layout", Message: err.Error(),
+			TargetIDs:    uniqueSorted([]string{win.TargetID, part.TargetID, disk.TargetID, espCand.TargetID, bcdID}),
+			EvidenceRefs: []string{},
+		}}, nil
+	}
+	return candidate, nil, nil, nil
 }
 
-func validateTechnicianSelection(idx *index, sel *TechnicianSelection) (domain.TopologySelection, error) {
+func validateTechnicianSelection(idx *index, relations []domain.TopologyRelation, sel *TechnicianSelection) (domain.TopologySelection, error) {
 	check := func(id, wantType string) error {
 		if id == "" {
 			return nil
@@ -706,14 +723,62 @@ func validateTechnicianSelection(idx *index, sel *TechnicianSelection) (domain.T
 			return domain.TopologySelection{}, fmt.Errorf("cannot select ESP on non-GPT disk")
 		}
 	}
-	return domain.TopologySelection{
+	out := domain.TopologySelection{
 		Source:                   domain.SelectionTechnician,
 		WindowsTargetID:          sel.WindowsTargetID,
 		WindowsPartitionTargetID: sel.WindowsPartitionTargetID,
 		SystemDiskTargetID:       sel.SystemDiskTargetID,
 		ESPTargetID:              sel.ESPTargetID,
 		BCDTargetID:              sel.BCDTargetID,
-	}, nil
+	}
+	if err := requireConnectedTopology(relations, out); err != nil {
+		return domain.TopologySelection{}, err
+	}
+	return out, nil
+}
+
+func requireConnectedTopology(relations []domain.TopologyRelation, sel domain.TopologySelection) error {
+	if sel.WindowsTargetID != "" && sel.WindowsPartitionTargetID != "" {
+		if !hasRelation(relations, domain.RelationHostsWindows, sel.WindowsPartitionTargetID, sel.WindowsTargetID) {
+			return fmt.Errorf("windows installation is not connected to selected partition")
+		}
+	}
+	if sel.WindowsPartitionTargetID != "" && sel.SystemDiskTargetID != "" {
+		if !hasRelation(relations, domain.RelationContains, sel.SystemDiskTargetID, sel.WindowsPartitionTargetID) {
+			return fmt.Errorf("windows partition is not connected to selected system disk")
+		}
+	}
+	if sel.ESPTargetID != "" && sel.SystemDiskTargetID != "" {
+		if !hasRelation(relations, domain.RelationHostsESP, sel.SystemDiskTargetID, sel.ESPTargetID) {
+			return fmt.Errorf("ESP is not connected to selected system disk")
+		}
+	}
+	if sel.BCDTargetID != "" {
+		if sel.ESPTargetID != "" {
+			if !hasRelation(relations, domain.RelationContainsBCDStore, sel.ESPTargetID, sel.BCDTargetID) {
+				return fmt.Errorf("BCD store is not connected to selected ESP")
+			}
+		} else if sel.WindowsPartitionTargetID != "" {
+			if !hasRelation(relations, domain.RelationContainsBCDStore, sel.WindowsPartitionTargetID, sel.BCDTargetID) {
+				return fmt.Errorf("BCD store is not connected to selected windows partition")
+			}
+		} else {
+			return fmt.Errorf("BCD selection requires ESP or windows partition")
+		}
+	}
+	return nil
+}
+
+func hasRelation(relations []domain.TopologyRelation, typ domain.TopologyRelationType, from, to string) bool {
+	for _, r := range relations {
+		if r.RelationType == typ && r.FromTargetID == from && r.ToTargetID == to {
+			if r.Confidence == domain.ConfidenceAmbiguous || r.Confidence == domain.ConfidenceUnknown {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func relatedPartitions(idx *index, targetID string) []string {

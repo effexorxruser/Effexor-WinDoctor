@@ -229,22 +229,54 @@ func TestDescriptorsDefensiveCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	descs := reg.Descriptors()
+	if len(descs) == 0 || len(descs[0].RequiredEvidence) == 0 {
+		t.Fatal("expected descriptors with required_evidence")
+	}
+	original := descs[0].RequiredEvidence[0]
+	descs[0].RequiredEvidence[0] = "mutated"
+	desc, _ := reg.Descriptor(descs[0].OperationID, descs[0].Version)
+	if desc.RequiredEvidence[0] != original {
+		t.Fatalf("RequiredEvidence copy was not defensive: got %q want %q", desc.RequiredEvidence[0], original)
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			descs := reg.Descriptors()
-			if len(descs) != 8 {
-				t.Errorf("descriptors = %d", len(descs))
+			mut := reg.Descriptors()
+			if len(mut) != 8 {
+				t.Errorf("descriptors = %d", len(mut))
 			}
-			descs[0].Title = "mutated"
+			if len(mut[0].RequiredEvidence) > 0 {
+				mut[0].RequiredEvidence[0] = "mutated"
+			}
 		}()
 	}
 	wg.Wait()
-	desc, _ := reg.Descriptor("windows.inspect_installation", "1.0.0")
-	if desc.Title == "mutated" {
-		t.Fatal("descriptor copy was not defensive")
+	desc, _ = reg.Descriptor("windows.inspect_installation", "1.0.0")
+	if len(desc.RequiredEvidence) > 0 && desc.RequiredEvidence[0] == "mutated" {
+		t.Fatal("concurrent RequiredEvidence mutation leaked into registry")
+	}
+}
+
+func TestExecuteRejectsTrailingJSONParameters(t *testing.T) {
+	t.Parallel()
+	reg, err := NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reg.Execute(context.Background(), Request{
+		ReadOperationRequest: domain.ReadOperationRequest{
+			SchemaName: domain.SchemaReadOperationRequest, SchemaVersion: domain.SchemaVersion,
+			RequestID: "readreq-777777777777777777777777", CaseID: "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+			OperationID: "boot.inspect_firmware_mode", OperationVersion: "1.0.0",
+			TargetID: "target-firmware-system", Parameters: json.RawMessage(`{}{}`),
+		},
+		Snapshot: testSnapshot(t),
+	})
+	if !errors.Is(err, ErrMalformedParameters) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -336,10 +368,10 @@ func testSnapshot(t *testing.T) casestore.Snapshot {
 		EvidenceBundles: []domain.EvidenceBundle{
 			testLegacyBundle(t, "evidence-bbbbbbbbbbbbbbbbbbbbbbbb", firmwareID, "firmware_environment", map[string]any{
 				"boot_firmware_mode": "uefi", "hardware": map[string]any{"firmware_mode": "uefi"},
-				"drive_health": []any{map[string]any{"device_id": "0", "health_status": "Healthy"}},
+				"drive_health": []any{map[string]any{"device_id": "0", "health_status": "Healthy", "operational_status": "OK"}},
 			}, nil),
 			testLegacyBundle(t, "evidence-cccccccccccccccccccccccc", diskID, "disk", map[string]any{
-				"disk_number": json.Number("0"), "partition_style": "GPT",
+				"number": json.Number("0"), "partition_style": "GPT",
 			}, nil),
 			testLegacyBundle(t, "evidence-dddddddddddddddddddddddd", partID, "partition", map[string]any{
 				"disk_number": json.Number("0"), "type": "Basic",
@@ -348,7 +380,7 @@ func testSnapshot(t *testing.T) casestore.Snapshot {
 				"disk_number": json.Number("0"), "gpt_type": "{C12A7328-F81F-11D2-BA4B-00A0C93EC93B}",
 			}, []string{diskID}),
 			testLegacyBundle(t, "evidence-ffffffffffffffffffffffff", winID, "windows_installation", map[string]any{
-				"root_path": `C:\Windows`, "version": "10.0",
+				"root": `C:\Windows`, "version": map[string]any{"product_name": "Windows 10", "build": "19045"},
 			}, []string{partID}),
 			testLegacyBundle(t, "evidence-111111111111111111111111", bcdID, "boot_store", map[string]any{
 				"kind": "system", "path": `\EFI\Microsoft\Boot\BCD`,

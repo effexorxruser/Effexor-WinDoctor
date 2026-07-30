@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -104,6 +105,13 @@ func decodeParameters(raw json.RawMessage) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(&params); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrMalformedParameters, err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("%w: trailing JSON content", ErrMalformedParameters)
+		}
 		return nil, fmt.Errorf("%w: %v", ErrMalformedParameters, err)
 	}
 	return params, nil

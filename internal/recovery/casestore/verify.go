@@ -63,7 +63,7 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 	// Committed snapshot IDs come from the valid prefix only.
 	committedSnaps := map[string]struct{}{}
 	referencedBlobs := map[string]struct{}{}
-	for _, c := range chain {
+	for i, c := range chain {
 		committedSnaps[c.SnapshotID] = struct{}{}
 		report.ValidCommitIDs = append(report.ValidCommitIDs, c.CommitID)
 		snap, err := s.loadSnapshotAtCommit(caseID, c)
@@ -72,7 +72,11 @@ func (s *Store) Verify(ctx context.Context, caseID string) (IntegrityReport, err
 			report.Errors = append(report.Errors, fmt.Sprintf("commit %s: %v", c.CommitID, err))
 			continue
 		}
-		_ = snap
+		if err := s.validateAcquisitionCommitProvenance(caseID, chain, i, snap); err != nil {
+			report.Status = IntegrityCorrupt
+			report.Errors = append(report.Errors, fmt.Sprintf("commit %s: %v", c.CommitID, err))
+			continue
+		}
 		manifest, err := s.readManifest(caseID, c.SnapshotID)
 		if err != nil {
 			report.Status = IntegrityCorrupt

@@ -166,6 +166,63 @@ func TestAcquisitionIdempotentAndConflict(t *testing.T) {
 	}
 }
 
+func TestAcquisitionStaleCommitIdempotent(t *testing.T) {
+	t.Parallel()
+	c, _, _ := openCoord(t)
+	view := mustCreate(t, c)
+	fw := firmwareTarget(t, view)
+	staleCommit := view.CommitInfo.CommitID
+	req := coordinator.ExecuteReadOperationRequest{
+		CaseID:           view.Snapshot.Case.CaseID,
+		ExpectedCommitID: staleCommit,
+		RequestID:        "acqreq-ffffffffffffffffffffffff",
+		OperationID:      "boot.inspect_firmware_mode",
+		OperationVersion: "1.0.0",
+		TargetID:         fw,
+		Parameters:       json.RawMessage(`{}`),
+		Actor:            domain.ActorSystem,
+	}
+	first, err := c.ExecuteReadOperation(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Idempotent {
+		t.Fatal("first call should commit")
+	}
+	if first.CaseView.CommitInfo.CommitID == staleCommit {
+		t.Fatal("commit should advance after first acquisition")
+	}
+	acqCount := len(first.CaseView.Snapshot.EvidenceAcquisitions)
+
+	req.ExpectedCommitID = staleCommit
+	second, err := c.ExecuteReadOperation(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Idempotent {
+		t.Fatal("stale commit retry with same request_id must be idempotent")
+	}
+	if second.Evidence.EvidenceID != first.Evidence.EvidenceID {
+		t.Fatal("idempotent retry must return same evidence")
+	}
+	if len(second.CaseView.Snapshot.EvidenceAcquisitions) != acqCount {
+		t.Fatalf("acquisition count changed: %d -> %d", acqCount, len(second.CaseView.Snapshot.EvidenceAcquisitions))
+	}
+
+	req.OperationID = "bitlocker.inspect_inventory"
+	_, err = c.ExecuteReadOperation(context.Background(), req)
+	if !errors.Is(err, coordinator.ErrAcquisitionConflict) {
+		t.Fatalf("same request_id different operation: got %v", err)
+	}
+
+	req.OperationID = "boot.inspect_firmware_mode"
+	req.RequestID = "acqreq-111111111111111111111112"
+	_, err = c.ExecuteReadOperation(context.Background(), req)
+	if !errors.Is(err, coordinator.ErrCaseRevisionConflict) {
+		t.Fatalf("new request_id with stale commit: got %v", err)
+	}
+}
+
 func firmwareTarget(t *testing.T, view coordinator.CaseView) string {
 	t.Helper()
 	for _, tgt := range view.Snapshot.Targets {

@@ -54,6 +54,31 @@ func TestCatalogDescriptorsForbidCommandLikeFields(t *testing.T) {
 	}
 }
 
+func TestReadPackageHasNoWindowsSuffixGoFiles(t *testing.T) {
+	t.Parallel()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Dir(file)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, "_test.go") || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_windows.go") {
+			t.Fatalf("read package must not use *_windows.go filenames (use explicit names like handlers_windows_install.go): %s", name)
+		}
+	}
+}
+
 func TestContractSchemaRefsForbidCommandLikeTokens(t *testing.T) {
 	t.Parallel()
 	forbidden := []string{"command", "shell", "powershell", "argv", "executable", "script"}

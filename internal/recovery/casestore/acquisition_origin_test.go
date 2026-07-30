@@ -125,10 +125,15 @@ func TestInitialIDRepeatedAsAddedRejected(t *testing.T) {
 func TestAcquisitionRoundTrip(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
+	base := enrichedSnapshot(t)
+	parent := mustCommit(t, st, base, nil, CommitReasonCaseSnapshot)
+
 	snap := enrichedSnapshot(t)
 	addedID := "evidence-cccccccccccccccccccccccc"
 	snap.EvidenceBundles = append(snap.EvidenceBundles, sampleAddedEvidence(snap.Case.CaseID, addedID, snap.Targets[0].TargetID))
-	snap.EvidenceAcquisitions = []domain.EvidenceAcquisitionRecord{sampleAcquisition(snap.Case.CaseID, addedID)}
+	acq := sampleAcquisition(snap.Case.CaseID, addedID)
+	acq.SourceCommitID = parent.CommitID
+	snap.EvidenceAcquisitions = []domain.EvidenceAcquisitionRecord{acq}
 	info := mustCommit(t, st, snap, nil, CommitReasonCaseSnapshot)
 	loaded, got, err := st.LoadLatest(context.Background(), snap.Case.CaseID)
 	if err != nil {
@@ -145,5 +150,27 @@ func TestAcquisitionRoundTrip(t *testing.T) {
 	}
 	if loaded.Case.CurrentState != domain.CaseStateSnapshotted {
 		t.Fatalf("case state changed: %s", loaded.Case.CurrentState)
+	}
+}
+
+func TestAcquisitionDanglingSourceCommitRejected(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	base := enrichedSnapshot(t)
+	parent := mustCommit(t, st, base, nil, CommitReasonCaseSnapshot)
+
+	snap := enrichedSnapshot(t)
+	addedID := "evidence-cccccccccccccccccccccccc"
+	snap.EvidenceBundles = append(snap.EvidenceBundles, sampleAddedEvidence(snap.Case.CaseID, addedID, snap.Targets[0].TargetID))
+	acq := sampleAcquisition(snap.Case.CaseID, addedID)
+	acq.SourceCommitID = "commit-dddddddddddddddddddddddd"
+	snap.EvidenceAcquisitions = []domain.EvidenceAcquisitionRecord{acq}
+	_, err := st.Commit(context.Background(), CommitRequest{
+		Snapshot:          snap,
+		Reason:            CommitReasonCaseSnapshot,
+		ParentExpectation: ExpectParentCommit(parent.CommitID),
+	})
+	if err == nil {
+		t.Fatal("expected dangling source_commit_id rejection")
 	}
 }

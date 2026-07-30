@@ -74,15 +74,32 @@ func (r *Registry) Descriptor(operationID, version string) (domain.OperationDesc
 	if !ok {
 		return domain.OperationDescriptor{}, false
 	}
-	return entry.descriptor, true
+	return cloneDescriptor(entry.descriptor), true
 }
 
-// Descriptors returns a defensive copy of all registered descriptors.
+// Descriptors returns a defensive deep copy of all registered descriptors.
 func (r *Registry) Descriptors() []domain.OperationDescriptor {
 	out := make([]domain.OperationDescriptor, 0, len(r.order))
 	for _, key := range r.order {
 		entry := r.entries[key]
-		out = append(out, entry.descriptor)
+		out = append(out, cloneDescriptor(entry.descriptor))
+	}
+	return out
+}
+
+func cloneDescriptor(d domain.OperationDescriptor) domain.OperationDescriptor {
+	out := d
+	out.RequiredEvidence = append([]string(nil), d.RequiredEvidence...)
+	out.RequiredCapabilities = append([]string(nil), d.RequiredCapabilities...)
+	out.SupportedRuntimes = append([]string(nil), d.SupportedRuntimes...)
+	if out.RequiredEvidence == nil {
+		out.RequiredEvidence = []string{}
+	}
+	if out.RequiredCapabilities == nil {
+		out.RequiredCapabilities = []string{}
+	}
+	if out.SupportedRuntimes == nil {
+		out.SupportedRuntimes = []string{}
 	}
 	return out
 }
