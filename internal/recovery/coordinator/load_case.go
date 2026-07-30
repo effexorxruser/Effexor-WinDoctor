@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/casestore"
-	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 )
 
 // LoadCase verifies Case Store integrity then returns the latest committed view.
@@ -31,10 +30,5 @@ func (c *Coordinator) LoadCase(ctx context.Context, caseID string) (CaseView, er
 		}
 		return CaseView{}, err
 	}
-
-	// case_loaded is a read-side audit type; it is not persisted in PR #17 to
-	// avoid mutating Case state on every load. Callers may observe EventCaseLoaded
-	// in contracts for future append-only load audits.
-	_ = domain.EventCaseLoaded
 	return c.viewFrom(snap, info)
 }

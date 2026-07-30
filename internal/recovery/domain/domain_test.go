@@ -272,8 +272,6 @@ func TestIsStateChangingCoordinatorEventTypeConcurrent(t *testing.T) {
 	t.Parallel()
 	types := []domain.CoordinatorEventType{
 		domain.EventCaseCreated,
-		domain.EventCaseLoaded,
-		domain.EventEvidenceCommitted,
 		domain.EventAnalysisCommitted,
 		domain.EventPlanCommitted,
 		domain.EventCaseFailed,

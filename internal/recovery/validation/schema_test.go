@@ -173,7 +173,10 @@ func goValidateFixture(schemaName, file string, raw []byte) error {
 		return domain.DecodeAndValidateJSON(raw, &v)
 	case domain.SchemaCaseWorkflowState:
 		var v domain.CaseWorkflowState
-		return domain.DecodeAndValidateJSON(raw, &v)
+		if err := domain.DecodeAndValidateJSON(raw, &v); err != nil {
+			return err
+		}
+		return domain.ValidatePR17WorkflowStateDocumentSemantics(v)
 	case domain.SchemaCoordinatorEvent:
 		var v domain.CoordinatorEvent
 		if err := domain.DecodeAndValidateJSON(raw, &v); err != nil {

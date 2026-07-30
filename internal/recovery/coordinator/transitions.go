@@ -7,7 +7,7 @@ import (
 )
 
 func validateTransition(from, to domain.WorkflowStateName, actor domain.ActorType, findings int, plans int) error {
-	eventType := domain.EventCaseLoaded
+	var eventType domain.CoordinatorEventType
 	switch {
 	case from == domain.WorkflowCreated && to == domain.WorkflowEvidenceCollected:
 		eventType = domain.EventCaseCreated
@@ -18,10 +18,10 @@ func validateTransition(from, to domain.WorkflowStateName, actor domain.ActorTyp
 		eventType = domain.EventAnalysisCommitted
 	case from == domain.WorkflowAnalyzed && to == domain.WorkflowPlanProposed:
 		eventType = domain.EventPlanCommitted
-	case (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
+	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
 		to == domain.WorkflowFailed:
 		eventType = domain.EventCaseFailed
-	case (from == domain.WorkflowCreated || from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
+	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
 		to == domain.WorkflowCancelled:
 		eventType = domain.EventCaseCancelled
 	default:

@@ -18,9 +18,8 @@ func IsStateChangingCoordinatorEventType(eventType CoordinatorEventType) bool {
 	case EventCaseCreated, EventLegacyCaseAdopted, EventAnalysisCommitted,
 		EventPlanCommitted, EventCaseFailed, EventCaseCancelled:
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func allowedActorForPR17Event(eventType CoordinatorEventType, actor ActorType) bool {
@@ -34,7 +33,7 @@ func allowedActorForPR17Event(eventType CoordinatorEventType, actor ActorType) b
 	case EventCaseFailed, EventCaseCancelled:
 		return isPR17AllowedActor(actor)
 	default:
-		return true
+		return false
 	}
 }
 
@@ -50,10 +49,10 @@ func validPR17TransitionForEvent(eventType CoordinatorEventType, prev, next Work
 	case EventPlanCommitted:
 		return prev == WorkflowAnalyzed && next == WorkflowPlanProposed
 	case EventCaseFailed:
-		return (prev == WorkflowCreated || prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
+		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
 			next == WorkflowFailed
 	case EventCaseCancelled:
-		return (prev == WorkflowCreated || prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
+		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
 			next == WorkflowCancelled
 	default:
 		return false
@@ -67,7 +66,7 @@ func ValidatePR17CoordinatorEventSemantics(e CoordinatorEvent) error {
 		return err
 	}
 	if !IsStateChangingCoordinatorEventType(e.EventType) {
-		return nil
+		return fmt.Errorf("event_type %q is not implemented in PR #17", e.EventType)
 	}
 	if !isPR17AllowedActor(e.ActorType) {
 		return fmt.Errorf("actor_type %q is not permitted in PR #17", e.ActorType)

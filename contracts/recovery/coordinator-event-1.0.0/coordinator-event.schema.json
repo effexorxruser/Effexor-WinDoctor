@@ -24,8 +24,6 @@
       "type": "string",
       "enum": [
         "case_created",
-        "case_loaded",
-        "evidence_committed",
         "analysis_committed",
         "plan_committed",
         "case_failed",
@@ -66,44 +64,67 @@
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
     }
   },
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "properties": {
-          "event_type": {
-            "enum": [
-              "case_created",
-              "analysis_committed",
-              "plan_committed",
-              "case_failed",
-              "case_cancelled",
-              "legacy_case_adopted"
-            ]
-          }
-        },
-        "required": ["event_type"]
+      "properties": {
+        "event_type": { "const": "case_created" },
+        "actor_type": { "enum": ["system", "technician"] },
+        "previous_state": { "const": "created" },
+        "next_state": { "const": "evidence_collected" },
+        "workflow_revision": { "const": 1 }
       },
-      "then": {
-        "required": ["workflow_revision"]
-      },
-      "else": {
-        "not": {
-          "required": ["workflow_revision"]
-        }
-      }
+      "required": ["previous_state", "next_state", "workflow_revision"],
+      "not": { "required": ["expected_commit_id"] }
     },
     {
-      "if": {
-        "properties": {
-          "event_type": { "const": "case_created" }
-        },
-        "required": ["event_type"]
+      "properties": {
+        "event_type": { "const": "legacy_case_adopted" },
+        "actor_type": { "enum": ["system", "technician"] },
+        "next_state": { "const": "evidence_collected" },
+        "workflow_revision": { "const": 1 }
       },
-      "then": {
-        "not": {
-          "required": ["expected_commit_id"]
-        }
-      }
+      "required": ["next_state", "workflow_revision", "expected_commit_id"],
+      "not": { "required": ["previous_state"] }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "analysis_committed" },
+        "actor_type": { "enum": ["system", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed"] },
+        "next_state": { "const": "analyzed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "plan_committed" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "const": "analyzed" },
+        "next_state": { "const": "plan_proposed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "case_failed" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "next_state": { "const": "failed" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "case_cancelled" },
+        "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "next_state": { "const": "cancelled" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
     }
   ]
 }

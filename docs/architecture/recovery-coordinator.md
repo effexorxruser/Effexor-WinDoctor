@@ -80,7 +80,8 @@ no separate mutable log.
 
 ### Event revision model
 
-State-changing events carry explicit `workflow_revision` (integer ≥ 1):
+All `coordinator-event` 1.0.0 events in PR #17 are state-changing and carry
+explicit `workflow_revision` (integer ≥ 1):
 
 - revision `1` must be `case_created` or `legacy_case_adopted`;
 - for each revision `2..N`, `current.previous_state == previous.next_state`;
@@ -89,11 +90,20 @@ State-changing events carry explicit `workflow_revision` (integer ≥ 1):
 - the maximum revision `next_state` must equal `WorkflowState.State`;
 - ordering does **not** depend on `occurred_at` or `event_id`.
 
-Non-state-changing events must omit `workflow_revision`.
-
 The immutable event semantics table is shared by Coordinator writes and Case
 Store snapshot validation, so actor authority and state-transition rules cannot
 drift between writer and reader.
+
+Persisted workflow-state semantics are also validated centrally:
+
+- legacy latest snapshots may contain only Case / Targets / Evidence with `WorkflowState=nil`;
+- once workflow exists, Findings / RepairPlans / ExecutionEvents /
+  VerificationReports / CoordinatorEvents require it;
+- `created` and all future reserved states are rejected as persisted latest
+  states in PR #17;
+- `WorkflowState.updated_at == CaseManifest.updated_at == last_transition.occurred_at`;
+- `plan_proposed` requires `active_plan_id`; `failed` requires `failure`;
+- all PR #17 states forbid `active_execution_id`.
 
 ### Event-specific refs
 

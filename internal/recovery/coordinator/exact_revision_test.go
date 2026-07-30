@@ -181,38 +181,6 @@ func TestWriteReturnsExactCommittedRevision(t *testing.T) {
 	}
 }
 
-func TestAdoptLegacyRejectsCoordinatorEvents(t *testing.T) {
-	t.Parallel()
-	c, st, _ := openCoord(t)
-	raw := reportFixture(t)
-	imported, err := coordinator.DefaultImporter{}.ImportJSON(raw, legacyreport.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	snap := casestore.SnapshotFromImporterResult(imported)
-	snap.CoordinatorEvents = []domain.CoordinatorEvent{{
-		SchemaName: domain.SchemaCoordinatorEvent, SchemaVersion: domain.SchemaVersion,
-		EventID: "cevt-111111111111111111111111", CaseID: snap.Case.CaseID,
-		EventType: domain.EventCaseLoaded, ActorType: domain.ActorSystem,
-		OccurredAt:            snap.Case.UpdatedAt,
-		ReferencedDocumentIDs: []string{snap.Case.CaseID},
-		ReasonCode:            "case_loaded",
-	}}
-	info, err := st.Commit(context.Background(), casestore.CommitRequest{
-		Snapshot: snap,
-		Reason:   casestore.CommitReasonLegacyImport,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = c.AdoptLegacyCase(context.Background(), coordinator.AdoptLegacyCaseRequest{
-		CaseID: snap.Case.CaseID, ExpectedCommitID: info.CommitID, Actor: domain.ActorSystem,
-	})
-	if !errors.Is(err, coordinator.ErrLegacyAdoptionRejected) {
-		t.Fatalf("want ErrLegacyAdoptionRejected, got %v", err)
-	}
-}
-
 func TestAdoptLegacyRejectsNonSnapshottedCurrentState(t *testing.T) {
 	t.Parallel()
 	states := []domain.CaseState{

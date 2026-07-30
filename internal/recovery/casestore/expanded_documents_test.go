@@ -99,10 +99,6 @@ func sampleCoordinatorEvent() domain.CoordinatorEvent {
 			"case-aaaaaaaaaaaaaaaaaaaaaaaa",
 			"target-disk-nvme0n1",
 			"evidence-bbbbbbbbbbbbbbbbbbbbbbbb",
-			"finding-cccccccccccccccccccccccc",
-			"plan-dddddddddddddddddddddddd",
-			"exec-eeeeeeeeeeeeeeeeeeeeeeee",
-			"verify-ffffffffffffffffffffffff",
 			domain.DocumentIDCaseWorkflowState,
 		},
 		ReasonCode: "legacy_import_committed",
@@ -130,6 +126,124 @@ func enrichedSnapshot(t *testing.T) Snapshot {
 	snap.VerificationReports = []domain.VerificationReport{sampleVerification()}
 	snap.CoordinatorEvents = []domain.CoordinatorEvent{sampleCoordinatorEvent()}
 	snap.WorkflowState = sampleWorkflow()
+	return snap
+}
+
+func analyzedSnapshot(t *testing.T) Snapshot {
+	t.Helper()
+	snap := baseSnapshot(t)
+	snap.Findings = []domain.Finding{sampleFinding()}
+	snap.Case.CurrentState = domain.CaseStateDiagnosed
+	snap.Case.UpdatedAt = "2026-07-27T12:06:00Z"
+	snap.CoordinatorEvents = []domain.CoordinatorEvent{
+		sampleCoordinatorEvent(),
+		{
+			SchemaName:       domain.SchemaCoordinatorEvent,
+			SchemaVersion:    domain.SchemaVersion,
+			EventID:          "cevt-222222222222222222222222",
+			CaseID:           snap.Case.CaseID,
+			EventType:        domain.EventAnalysisCommitted,
+			ActorType:        domain.ActorDeterministicAnalyzer,
+			OccurredAt:       "2026-07-27T12:06:00Z",
+			PreviousState:    string(domain.WorkflowEvidenceCollected),
+			NextState:        string(domain.WorkflowAnalyzed),
+			ExpectedCommitID: "commit-111111111111111111111111",
+			WorkflowRevision: 2,
+			ReferencedDocumentIDs: []string{
+				snap.Case.CaseID,
+				sampleFinding().FindingID,
+				snap.EvidenceBundles[0].EvidenceID,
+				snap.Targets[0].TargetID,
+				domain.DocumentIDCaseWorkflowState,
+			},
+			ReasonCode: "analysis_committed",
+		},
+	}
+	snap.WorkflowState = &domain.CaseWorkflowState{
+		SchemaName:       domain.SchemaCaseWorkflowState,
+		SchemaVersion:    domain.SchemaVersion,
+		CaseID:           snap.Case.CaseID,
+		State:            domain.WorkflowAnalyzed,
+		Revision:         2,
+		UpdatedAt:        snap.Case.UpdatedAt,
+		LastTransitionID: "cevt-222222222222222222222222",
+	}
+	return snap
+}
+
+func plannedSnapshot(t *testing.T) Snapshot {
+	t.Helper()
+	snap := analyzedSnapshot(t)
+	snap.RepairPlans = []domain.RepairPlan{samplePlan()}
+	snap.Case.CurrentState = domain.CaseStatePlanned
+	snap.Case.UpdatedAt = "2026-07-27T12:07:00Z"
+	snap.CoordinatorEvents = append(snap.CoordinatorEvents, domain.CoordinatorEvent{
+		SchemaName:       domain.SchemaCoordinatorEvent,
+		SchemaVersion:    domain.SchemaVersion,
+		EventID:          "cevt-333333333333333333333333",
+		CaseID:           snap.Case.CaseID,
+		EventType:        domain.EventPlanCommitted,
+		ActorType:        domain.ActorSystem,
+		OccurredAt:       "2026-07-27T12:07:00Z",
+		PreviousState:    string(domain.WorkflowAnalyzed),
+		NextState:        string(domain.WorkflowPlanProposed),
+		ExpectedCommitID: "commit-222222222222222222222222",
+		WorkflowRevision: 3,
+		ReferencedDocumentIDs: []string{
+			snap.Case.CaseID,
+			samplePlan().PlanID,
+			samplePlan().FindingRefs[0],
+			snap.Targets[0].TargetID,
+			domain.DocumentIDCaseWorkflowState,
+		},
+		ReasonCode: "plan_committed",
+	})
+	snap.WorkflowState = &domain.CaseWorkflowState{
+		SchemaName:       domain.SchemaCaseWorkflowState,
+		SchemaVersion:    domain.SchemaVersion,
+		CaseID:           snap.Case.CaseID,
+		State:            domain.WorkflowPlanProposed,
+		Revision:         3,
+		UpdatedAt:        snap.Case.UpdatedAt,
+		LastTransitionID: "cevt-333333333333333333333333",
+		ActivePlanID:     samplePlan().PlanID,
+	}
+	return snap
+}
+
+func failedSnapshot(t *testing.T) Snapshot {
+	t.Helper()
+	snap := analyzedSnapshot(t)
+	snap.Case.CurrentState = domain.CaseStateFailed
+	snap.Case.UpdatedAt = "2026-07-27T12:07:00Z"
+	snap.CoordinatorEvents = append(snap.CoordinatorEvents, domain.CoordinatorEvent{
+		SchemaName:       domain.SchemaCoordinatorEvent,
+		SchemaVersion:    domain.SchemaVersion,
+		EventID:          "cevt-444444444444444444444444",
+		CaseID:           snap.Case.CaseID,
+		EventType:        domain.EventCaseFailed,
+		ActorType:        domain.ActorTechnician,
+		OccurredAt:       "2026-07-27T12:07:00Z",
+		PreviousState:    string(domain.WorkflowAnalyzed),
+		NextState:        string(domain.WorkflowFailed),
+		ExpectedCommitID: "commit-333333333333333333333333",
+		WorkflowRevision: 3,
+		ReferencedDocumentIDs: []string{
+			snap.Case.CaseID,
+			domain.DocumentIDCaseWorkflowState,
+		},
+		ReasonCode: "case_failed",
+	})
+	snap.WorkflowState = &domain.CaseWorkflowState{
+		SchemaName:       domain.SchemaCaseWorkflowState,
+		SchemaVersion:    domain.SchemaVersion,
+		CaseID:           snap.Case.CaseID,
+		State:            domain.WorkflowFailed,
+		Revision:         3,
+		UpdatedAt:        snap.Case.UpdatedAt,
+		LastTransitionID: "cevt-444444444444444444444444",
+		Failure:          &domain.WorkflowFailure{ReasonCode: "case_failed"},
+	}
 	return snap
 }
 
@@ -322,5 +436,181 @@ func TestFilenameIDMismatchRejectedOnLoad(t *testing.T) {
 	}
 	if !errors.Is(err, ErrIntegrity) {
 		t.Fatalf("want ErrIntegrity, got %v", err)
+	}
+}
+
+func TestLifecycleDocumentsRequireWorkflowState(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Snapshot)
+	}{
+		{"finding", func(s *Snapshot) { s.Findings = []domain.Finding{sampleFinding()} }},
+		{"plan", func(s *Snapshot) { s.RepairPlans = []domain.RepairPlan{samplePlan()} }},
+		{"execution", func(s *Snapshot) { s.ExecutionEvents = []domain.ExecutionEvent{sampleExecution()} }},
+		{"verification", func(s *Snapshot) { s.VerificationReports = []domain.VerificationReport{sampleVerification()} }},
+		{"event", func(s *Snapshot) { s.CoordinatorEvents = []domain.CoordinatorEvent{sampleCoordinatorEvent()} }},
+		{"multiple", func(s *Snapshot) {
+			s.Findings = []domain.Finding{sampleFinding()}
+			s.RepairPlans = []domain.RepairPlan{samplePlan()}
+			s.CoordinatorEvents = []domain.CoordinatorEvent{sampleCoordinatorEvent()}
+		}},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snap := baseSnapshot(t)
+			test.mutate(&snap)
+			if err := snap.Validate(); err == nil {
+				t.Fatal("expected workflow_state requirement rejection")
+			}
+		})
+	}
+}
+
+func TestWorkflowStateSemanticsPlanProposedRequiresActivePlan(t *testing.T) {
+	t.Parallel()
+	snap := plannedSnapshot(t)
+	snap.WorkflowState.ActivePlanID = ""
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected missing active_plan_id rejection")
+	}
+}
+
+func TestWorkflowStateSemanticsFailedRequiresFailure(t *testing.T) {
+	t.Parallel()
+	snap := failedSnapshot(t)
+	snap.WorkflowState.Failure = nil
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected missing failure rejection")
+	}
+}
+
+func TestWorkflowStateSemanticsCancelledForbidsFailure(t *testing.T) {
+	t.Parallel()
+	snap := failedSnapshot(t)
+	snap.Case.CurrentState = domain.CaseStateCancelled
+	snap.WorkflowState.State = domain.WorkflowCancelled
+	snap.CoordinatorEvents[len(snap.CoordinatorEvents)-1].EventType = domain.EventCaseCancelled
+	snap.CoordinatorEvents[len(snap.CoordinatorEvents)-1].NextState = string(domain.WorkflowCancelled)
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected cancelled failure rejection")
+	}
+}
+
+func TestWorkflowStateSemanticsCreatedNotPersisted(t *testing.T) {
+	t.Parallel()
+	snap := baseSnapshot(t)
+	snap.WorkflowState = &domain.CaseWorkflowState{
+		SchemaName:       domain.SchemaCaseWorkflowState,
+		SchemaVersion:    domain.SchemaVersion,
+		CaseID:           snap.Case.CaseID,
+		State:            domain.WorkflowCreated,
+		Revision:         1,
+		UpdatedAt:        snap.Case.UpdatedAt,
+		LastTransitionID: "cevt-111111111111111111111111",
+	}
+	snap.CoordinatorEvents = []domain.CoordinatorEvent{sampleCoordinatorEvent()}
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected persisted created rejection")
+	}
+}
+
+func TestWorkflowStateSemanticsTimestampMismatchRejected(t *testing.T) {
+	t.Parallel()
+	snap := analyzedSnapshot(t)
+	snap.WorkflowState.UpdatedAt = "2026-07-27T12:07:00Z"
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected workflow/case updated_at mismatch rejection")
+	}
+}
+
+func TestAnalysisEventReferenceSemanticsRejected(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Snapshot)
+	}{
+		{"missing finding", func(s *Snapshot) {
+			s.CoordinatorEvents[1].ReferencedDocumentIDs = []string{s.Case.CaseID, s.EvidenceBundles[0].EvidenceID, s.Targets[0].TargetID, domain.DocumentIDCaseWorkflowState}
+		}},
+		{"missing evidence", func(s *Snapshot) {
+			s.CoordinatorEvents[1].ReferencedDocumentIDs = []string{s.Case.CaseID, s.Findings[0].FindingID, s.Targets[0].TargetID, domain.DocumentIDCaseWorkflowState}
+		}},
+		{"missing target", func(s *Snapshot) {
+			s.CoordinatorEvents[1].ReferencedDocumentIDs = []string{s.Case.CaseID, s.Findings[0].FindingID, s.EvidenceBundles[0].EvidenceID, domain.DocumentIDCaseWorkflowState}
+		}},
+		{"unrelated plan", func(s *Snapshot) {
+			s.CoordinatorEvents[1].ReferencedDocumentIDs = append(s.CoordinatorEvents[1].ReferencedDocumentIDs, samplePlan().PlanID)
+			s.RepairPlans = []domain.RepairPlan{samplePlan()}
+		}},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snap := analyzedSnapshot(t)
+			test.mutate(&snap)
+			if err := snap.Validate(); err == nil {
+				t.Fatal("expected analysis ref semantics rejection")
+			}
+		})
+	}
+}
+
+func TestPlanEventReferenceSemanticsRejected(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Snapshot)
+	}{
+		{"missing plan", func(s *Snapshot) {
+			s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs = []string{s.Case.CaseID, s.Findings[0].FindingID, s.Targets[0].TargetID, domain.DocumentIDCaseWorkflowState}
+		}},
+		{"two plans", func(s *Snapshot) {
+			other := samplePlan()
+			other.PlanID = "plan-eeeeeeeeeeeeeeeeeeeeeeee"
+			s.RepairPlans = append(s.RepairPlans, other)
+			s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs = append(s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs, other.PlanID)
+		}},
+		{"missing finding", func(s *Snapshot) {
+			s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs = []string{s.Case.CaseID, s.RepairPlans[0].PlanID, s.Targets[0].TargetID, domain.DocumentIDCaseWorkflowState}
+		}},
+		{"unrelated event id", func(s *Snapshot) {
+			s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs = append(s.CoordinatorEvents[len(s.CoordinatorEvents)-1].ReferencedDocumentIDs, "cevt-999999999999999999999999")
+		}},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snap := plannedSnapshot(t)
+			test.mutate(&snap)
+			if err := snap.Validate(); err == nil {
+				t.Fatal("expected plan ref semantics rejection")
+			}
+		})
+	}
+}
+
+func TestCoordinatorEventSelfReferenceRejected(t *testing.T) {
+	t.Parallel()
+	snap := analyzedSnapshot(t)
+	snap.CoordinatorEvents[1].ReferencedDocumentIDs = append(snap.CoordinatorEvents[1].ReferencedDocumentIDs, snap.CoordinatorEvents[1].EventID)
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected self-reference rejection")
+	}
+}
+
+func TestTerminalEventExtraRefRejected(t *testing.T) {
+	t.Parallel()
+	snap := failedSnapshot(t)
+	snap.CoordinatorEvents[len(snap.CoordinatorEvents)-1].ReferencedDocumentIDs = append(
+		snap.CoordinatorEvents[len(snap.CoordinatorEvents)-1].ReferencedDocumentIDs,
+		snap.Findings[0].FindingID,
+	)
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected terminal extra ref rejection")
 	}
 }

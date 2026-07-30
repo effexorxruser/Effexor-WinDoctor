@@ -45,5 +45,64 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "state": { "const": "failed" } },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["failure"],
+        "not": { "required": ["active_execution_id"] }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "enum": ["evidence_collected", "analyzed", "plan_proposed", "cancelled"] } },
+        "required": ["state"]
+      },
+      "then": {
+        "allOf": [
+          { "not": { "required": ["failure"] } },
+          { "not": { "required": ["active_execution_id"] } }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "plan_proposed" } },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["active_plan_id"],
+        "allOf": [
+          { "not": { "required": ["active_execution_id"] } },
+          { "not": { "required": ["failure"] } }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "enum": ["evidence_collected", "analyzed"] } },
+        "required": ["state"]
+      },
+      "then": {
+        "allOf": [
+          { "not": { "required": ["active_plan_id"] } },
+          { "not": { "required": ["active_execution_id"] } },
+          { "not": { "required": ["failure"] } }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "enum": ["evidence_collected", "analyzed", "plan_proposed", "failed", "cancelled"] } },
+        "required": ["state"]
+      },
+      "then": {
+        "not": { "required": ["active_execution_id"] }
+      }
+    }
+  ]
 }

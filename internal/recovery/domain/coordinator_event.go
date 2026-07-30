@@ -25,8 +25,6 @@ type CoordinatorEventType string
 
 const (
 	EventCaseCreated       CoordinatorEventType = "case_created"
-	EventCaseLoaded        CoordinatorEventType = "case_loaded"
-	EventEvidenceCommitted CoordinatorEventType = "evidence_committed"
 	EventAnalysisCommitted CoordinatorEventType = "analysis_committed"
 	EventPlanCommitted     CoordinatorEventType = "plan_committed"
 	EventCaseFailed        CoordinatorEventType = "case_failed"
@@ -35,10 +33,9 @@ const (
 )
 
 var coordinatorEventTypes = map[string]struct{}{
-	string(EventCaseCreated): {}, string(EventCaseLoaded): {}, string(EventEvidenceCommitted): {},
-	string(EventAnalysisCommitted): {}, string(EventPlanCommitted): {},
-	string(EventCaseFailed): {}, string(EventCaseCancelled): {},
-	string(EventLegacyCaseAdopted): {},
+	string(EventCaseCreated): {}, string(EventAnalysisCommitted): {},
+	string(EventPlanCommitted): {}, string(EventCaseFailed): {},
+	string(EventCaseCancelled): {}, string(EventLegacyCaseAdopted): {},
 }
 
 // DocumentIDCaseWorkflowState is the typed singleton identifier for the
@@ -102,12 +99,8 @@ func (e CoordinatorEvent) Validate() error {
 			return err
 		}
 	}
-	if IsStateChangingCoordinatorEventType(e.EventType) {
-		if e.WorkflowRevision == 0 {
-			return fmt.Errorf("workflow_revision is required and must be >= 1 for state-changing event %q", e.EventType)
-		}
-	} else if e.WorkflowRevision != 0 {
-		return fmt.Errorf("workflow_revision must be absent for non-state-changing event %q", e.EventType)
+	if e.WorkflowRevision == 0 {
+		return fmt.Errorf("workflow_revision is required and must be >= 1 for state-changing event %q", e.EventType)
 	}
 	if e.ReferencedDocumentIDs == nil {
 		return fmt.Errorf("referenced_document_ids is required")

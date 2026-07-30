@@ -28,8 +28,13 @@ func TestWorkflowRevisionOrderingIndependentOfOccurredAt(t *testing.T) {
 			EventType: domain.EventCaseCreated, ActorType: domain.ActorSystem,
 			OccurredAt: "2026-07-27T12:05:00Z", PreviousState: string(domain.WorkflowCreated),
 			NextState: string(domain.WorkflowEvidenceCollected), WorkflowRevision: 1,
-			ReferencedDocumentIDs: []string{snap.Case.CaseID, domain.DocumentIDCaseWorkflowState},
-			ReasonCode:            "legacy_import_committed",
+			ReferencedDocumentIDs: []string{
+				snap.Case.CaseID,
+				snap.Targets[0].TargetID,
+				snap.EvidenceBundles[0].EvidenceID,
+				domain.DocumentIDCaseWorkflowState,
+			},
+			ReasonCode: "legacy_import_committed",
 		},
 		{
 			SchemaName: domain.SchemaCoordinatorEvent, SchemaVersion: domain.SchemaVersion,

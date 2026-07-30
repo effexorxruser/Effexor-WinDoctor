@@ -58,6 +58,12 @@ func (s Snapshot) Validate() error {
 	if updated.Before(created) {
 		return fmt.Errorf("%w: updated_at must not be before created_at", ErrInvalidArgument)
 	}
+	if s.WorkflowState == nil {
+		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 || len(s.ExecutionEvents) > 0 ||
+			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 {
+			return fmt.Errorf("%w: lifecycle documents require workflow_state", ErrInvalidArgument)
+		}
+	}
 
 	targetIDs := make(map[string]struct{}, len(s.Targets))
 	for i, t := range s.Targets {
@@ -236,6 +242,9 @@ func (s Snapshot) Validate() error {
 		if ev.CaseID != s.Case.CaseID {
 			return fmt.Errorf("%w: coordinator_events[%d].case_id mismatch", ErrInvalidArgument, i)
 		}
+		if err := validateCoordinatorEventReferenceSemantics(s, ev); err != nil {
+			return fmt.Errorf("coordinator_events[%d]: %w", i, err)
+		}
 	}
 	if s.WorkflowState != nil {
 		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
@@ -301,6 +310,14 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 				ErrInvalidArgument, rev, ws.Revision)
 		}
 	}
+	for rev := uint64(2); rev <= ws.Revision; rev++ {
+		prev := byRev[rev-1]
+		curr := byRev[rev]
+		if curr.OccurredAt < prev.OccurredAt {
+			return fmt.Errorf("%w: workflow revision %d occurred_at %q precedes revision %d occurred_at %q",
+				ErrInvalidArgument, rev, curr.OccurredAt, rev-1, prev.OccurredAt)
+		}
+	}
 	last, ok := byID[ws.LastTransitionID]
 	if !ok {
 		return fmt.Errorf("%w: last_transition_id %q missing", ErrInvalidArgument, ws.LastTransitionID)
@@ -336,6 +353,190 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 	if maxEv.NextState != string(ws.State) {
 		return fmt.Errorf("%w: max workflow_revision next_state %q != workflow state %q",
 			ErrInvalidArgument, maxEv.NextState, ws.State)
+	}
+	if err := domain.ValidatePR17WorkflowStateSemantics(*ws, s.Case, maxEv); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+	}
+	return nil
+}
+
+func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.CoordinatorEvent) error {
+	if containsRef(ev.ReferencedDocumentIDs, ev.EventID) {
+		return fmt.Errorf("referenced_document_ids must not self-reference event_id")
+	}
+	for _, id := range ev.ReferencedDocumentIDs {
+		if strings.HasPrefix(id, "cevt-") {
+			return fmt.Errorf("referenced_document_ids must not contain coordinator event ids")
+		}
+	}
+	if !containsRef(ev.ReferencedDocumentIDs, s.Case.CaseID) {
+		return fmt.Errorf("referenced_document_ids must contain case id")
+	}
+	if !containsRef(ev.ReferencedDocumentIDs, domain.DocumentIDCaseWorkflowState) {
+		return fmt.Errorf("referenced_document_ids must contain case-workflow-state")
+	}
+	switch ev.EventType {
+	case domain.EventCaseCreated, domain.EventLegacyCaseAdopted:
+		var targets, evidence int
+		for _, id := range ev.ReferencedDocumentIDs {
+			switch {
+			case id == s.Case.CaseID || id == domain.DocumentIDCaseWorkflowState:
+			case containsTargetID(s.Targets, id):
+				targets++
+			case containsEvidenceID(s.EvidenceBundles, id):
+				evidence++
+			default:
+				return fmt.Errorf("event %s may reference only case/workflow/target/evidence ids", ev.EventType)
+			}
+		}
+		if targets == 0 {
+			return fmt.Errorf("event %s requires at least one target ref", ev.EventType)
+		}
+		if evidence == 0 {
+			return fmt.Errorf("event %s requires at least one evidence ref", ev.EventType)
+		}
+	case domain.EventAnalysisCommitted:
+		want, err := analysisReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("analysis refs: %w", err)
+		}
+	case domain.EventPlanCommitted:
+		want, err := planReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("plan refs: %w", err)
+		}
+	case domain.EventCaseFailed, domain.EventCaseCancelled:
+		want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+		if s.WorkflowState != nil && s.WorkflowState.ActivePlanID != "" {
+			want = append(want, s.WorkflowState.ActivePlanID)
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("terminal refs: %w", err)
+		}
+	}
+	return nil
+}
+
+func analysisReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	found := 0
+	for _, id := range ev.ReferencedDocumentIDs {
+		if findFindingByID(s.Findings, id) == nil {
+			continue
+		}
+		finding := findFindingByID(s.Findings, id)
+		found++
+		want = append(want, finding.FindingID)
+		want = append(want, finding.EvidenceRefs...)
+		want = append(want, finding.AffectedTargetIDs...)
+	}
+	if found == 0 {
+		return nil, fmt.Errorf("analysis_committed requires at least one finding ref")
+	}
+	return uniqueSortedStrings(want), nil
+}
+
+func planReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	var plans []domain.RepairPlan
+	for _, id := range ev.ReferencedDocumentIDs {
+		if plan := findPlanByID(s.RepairPlans, id); plan != nil {
+			plans = append(plans, *plan)
+		}
+	}
+	if len(plans) != 1 {
+		return nil, fmt.Errorf("plan_committed requires exactly one plan ref")
+	}
+	plan := plans[0]
+	if s.WorkflowState == nil || s.WorkflowState.ActivePlanID != plan.PlanID {
+		return nil, fmt.Errorf("plan_committed active_plan_id must match referenced plan")
+	}
+	want = append(want, plan.PlanID)
+	want = append(want, plan.FindingRefs...)
+	for _, step := range plan.Steps {
+		want = append(want, step.TargetID)
+	}
+	return uniqueSortedStrings(want), nil
+}
+
+func requireExactRefSet(got []string, want []string) error {
+	gotSet := uniqueSortedStrings(got)
+	wantSet := uniqueSortedStrings(want)
+	if len(gotSet) != len(wantSet) {
+		return fmt.Errorf("exact ref set mismatch: got %v want %v", gotSet, wantSet)
+	}
+	for i := range gotSet {
+		if gotSet[i] != wantSet[i] {
+			return fmt.Errorf("exact ref set mismatch: got %v want %v", gotSet, wantSet)
+		}
+	}
+	return nil
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func containsRef(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTargetID(values []domain.Target, want string) bool {
+	for _, v := range values {
+		if v.TargetID == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEvidenceID(values []domain.EvidenceBundle, want string) bool {
+	for _, v := range values {
+		if v.EvidenceID == want {
+			return true
+		}
+	}
+	return false
+}
+
+func findFindingByID(values []domain.Finding, want string) *domain.Finding {
+	for i := range values {
+		if values[i].FindingID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
+func findPlanByID(values []domain.RepairPlan, want string) *domain.RepairPlan {
+	for i := range values {
+		if values[i].PlanID == want {
+			return &values[i]
+		}
 	}
 	return nil
 }

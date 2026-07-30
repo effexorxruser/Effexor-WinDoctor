@@ -64,7 +64,9 @@ record is the current state.
 
 Snapshots that contain only the original Case/Target/Evidence documents remain
 readable. Empty new collections omit document files and normalize
-deterministically.
+deterministically. Lifecycle documents (`Findings`, `RepairPlans`,
+`ExecutionEvents`, `VerificationReports`, `CoordinatorEvents`) are valid only
+when `case-workflow-state` is present.
 
 ## Immutable snapshots
 
