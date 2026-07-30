@@ -85,15 +85,16 @@ func sampleVerification() domain.VerificationReport {
 
 func sampleCoordinatorEvent() domain.CoordinatorEvent {
 	return domain.CoordinatorEvent{
-		SchemaName:    domain.SchemaCoordinatorEvent,
-		SchemaVersion: domain.SchemaVersion,
-		EventID:       "cevt-111111111111111111111111",
-		CaseID:        "case-aaaaaaaaaaaaaaaaaaaaaaaa",
-		EventType:     domain.EventCaseCreated,
-		ActorType:     domain.ActorSystem,
-		OccurredAt:    "2026-07-27T12:05:00Z",
-		PreviousState: string(domain.WorkflowCreated),
-		NextState:     string(domain.WorkflowEvidenceCollected),
+		SchemaName:       domain.SchemaCoordinatorEvent,
+		SchemaVersion:    domain.SchemaVersion,
+		EventID:          "cevt-111111111111111111111111",
+		CaseID:           "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+		EventType:        domain.EventCaseCreated,
+		ActorType:        domain.ActorSystem,
+		OccurredAt:       "2026-07-27T12:05:00Z",
+		PreviousState:    string(domain.WorkflowCreated),
+		NextState:        string(domain.WorkflowEvidenceCollected),
+		WorkflowRevision: 1,
 		ReferencedDocumentIDs: []string{
 			"case-aaaaaaaaaaaaaaaaaaaaaaaa",
 			"target-disk-nvme0n1",

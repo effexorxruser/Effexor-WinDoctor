@@ -8,7 +8,6 @@
   "occurred_at": "2026-07-27T12:05:00Z",
   "previous_state": "created",
   "next_state": "evidence_collected",
-  "workflow_revision": 1,
   "referenced_document_ids": ["case-aaaaaaaaaaaaaaaaaaaaaaaa"],
   "reason_code": "legacy_import_committed"
 }

@@ -256,21 +256,50 @@ func (s Snapshot) Validate() error {
 }
 
 // validateWorkflowTransitionIntegrity enforces the PR #17 revision model:
-// WorkflowState.Revision equals the count of state-changing coordinator events,
-// and last_transition_id identifies the last such event (by occurred_at, then event_id).
+// each state-changing coordinator-event carries an explicit workflow_revision;
+// revisions are unique and form the contiguous sequence 1..WorkflowState.Revision;
+// last_transition_id must reference the event with the maximum revision.
+// Ordering does not depend on occurred_at or event_id.
 func validateWorkflowTransitionIntegrity(s Snapshot) error {
 	ws := s.WorkflowState
 	byID := make(map[string]domain.CoordinatorEvent, len(s.CoordinatorEvents))
+	byRev := make(map[uint64]domain.CoordinatorEvent)
 	var changing []domain.CoordinatorEvent
 	for _, ev := range s.CoordinatorEvents {
 		byID[ev.EventID] = ev
-		if _, ok := domain.StateChangingEventTypes[ev.EventType]; ok {
-			changing = append(changing, ev)
+		_, isChanging := domain.StateChangingEventTypes[ev.EventType]
+		if !isChanging {
+			if ev.WorkflowRevision != 0 {
+				return fmt.Errorf("%w: non-state-changing event %q must not set workflow_revision",
+					ErrInvalidArgument, ev.EventID)
+			}
+			continue
+		}
+		if ev.WorkflowRevision == 0 {
+			return fmt.Errorf("%w: state-changing event %q requires workflow_revision >= 1",
+				ErrInvalidArgument, ev.EventID)
+		}
+		if _, dup := byRev[ev.WorkflowRevision]; dup {
+			return fmt.Errorf("%w: duplicate workflow_revision %d", ErrInvalidArgument, ev.WorkflowRevision)
+		}
+		byRev[ev.WorkflowRevision] = ev
+		changing = append(changing, ev)
+		if err := validateEventTransitionPair(ev); err != nil {
+			return err
 		}
 	}
 	if uint64(len(changing)) != ws.Revision {
 		return fmt.Errorf("%w: workflow revision %d != state-changing event count %d",
 			ErrInvalidArgument, ws.Revision, len(changing))
+	}
+	if ws.Revision == 0 {
+		return fmt.Errorf("%w: workflow present with revision 0", ErrInvalidArgument)
+	}
+	for rev := uint64(1); rev <= ws.Revision; rev++ {
+		if _, ok := byRev[rev]; !ok {
+			return fmt.Errorf("%w: missing workflow_revision %d in contiguous sequence 1..%d",
+				ErrInvalidArgument, rev, ws.Revision)
+		}
 	}
 	last, ok := byID[ws.LastTransitionID]
 	if !ok {
@@ -287,22 +316,10 @@ func validateWorkflowTransitionIntegrity(s Snapshot) error {
 		return fmt.Errorf("%w: last_transition_id event type %q is not state-changing",
 			ErrInvalidArgument, last.EventType)
 	}
-	if err := validateEventTransitionPair(last); err != nil {
-		return err
-	}
-	if len(changing) == 0 {
-		return fmt.Errorf("%w: workflow present without state-changing events", ErrInvalidArgument)
-	}
-	sort.Slice(changing, func(i, j int) bool {
-		if changing[i].OccurredAt != changing[j].OccurredAt {
-			return changing[i].OccurredAt < changing[j].OccurredAt
-		}
-		return changing[i].EventID < changing[j].EventID
-	})
-	tail := changing[len(changing)-1]
-	if tail.EventID != ws.LastTransitionID {
-		return fmt.Errorf("%w: last_transition_id %q is not the latest state-changing event %q",
-			ErrInvalidArgument, ws.LastTransitionID, tail.EventID)
+	maxEv := byRev[ws.Revision]
+	if last.EventID != maxEv.EventID || last.WorkflowRevision != ws.Revision {
+		return fmt.Errorf("%w: last_transition_id %q is not the max workflow_revision event %q (revision %d)",
+			ErrInvalidArgument, ws.LastTransitionID, maxEv.EventID, ws.Revision)
 	}
 	return nil
 }

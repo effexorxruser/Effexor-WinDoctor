@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"github.com/effexorxruser/EffexorWinPE/internal/recovery/casestore"
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 )
 
@@ -13,6 +14,7 @@ func (c *Coordinator) newAuditEvent(
 	refs []string,
 	reasonCode string,
 	commandID string,
+	workflowRevision uint64,
 ) (domain.CoordinatorEvent, error) {
 	eventID, err := c.newEventID()
 	if err != nil {
@@ -30,6 +32,7 @@ func (c *Coordinator) newAuditEvent(
 		ActorType:             actor,
 		OccurredAt:            c.nowRFC3339(),
 		ExpectedCommitID:      expectedCommitID,
+		WorkflowRevision:      workflowRevision,
 		ReferencedDocumentIDs: refs,
 		ReasonCode:            reasonCode,
 		CommandID:             commandID,
@@ -41,4 +44,14 @@ func (c *Coordinator) newAuditEvent(
 		ev.NextState = string(next)
 	}
 	return ev, nil
+}
+
+func stampAuditEvent(snap *casestore.Snapshot, eventID string, refs []string, occurredAt string) {
+	for i := range snap.CoordinatorEvents {
+		if snap.CoordinatorEvents[i].EventID == eventID {
+			snap.CoordinatorEvents[i].ReferencedDocumentIDs = append([]string(nil), refs...)
+			snap.CoordinatorEvents[i].OccurredAt = occurredAt
+			break
+		}
+	}
 }

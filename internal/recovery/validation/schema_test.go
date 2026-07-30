@@ -138,11 +138,13 @@ func TestSchemaRejectsInvalidFixtures(t *testing.T) {
 // goOnlyDependencyGraphFixtures are accepted by JSON Schema (single-document)
 // but rejected by Go RepairPlan dependency-graph validation.
 var goOnlyDependencyGraphFixtures = map[string]struct{}{
-	"repair-plan-bad-dependency.json":       {},
-	"repair-plan-self-dependency.json":      {},
-	"repair-plan-forward-dependency.json":   {},
-	"repair-plan-duplicate-dependency.json": {},
-	"repair-plan-cycle.json":                {},
+	"repair-plan-bad-dependency.json":             {},
+	"repair-plan-self-dependency.json":            {},
+	"repair-plan-forward-dependency.json":         {},
+	"repair-plan-duplicate-dependency.json":       {},
+	"repair-plan-cycle.json":                      {},
+	"coordinator-event-missing-revision.json":     {},
+	"coordinator-event-loaded-with-revision.json": {},
 }
 
 func goValidateFixture(schemaName, file string, raw []byte) error {

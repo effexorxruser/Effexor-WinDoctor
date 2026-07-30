@@ -105,30 +105,3 @@ func defaultReason(code, fallback string) string {
 	}
 	return code
 }
-
-func fullDocumentRefs(snap casestore.Snapshot) []string {
-	refs := make([]string, 0, 8+len(snap.Targets)+len(snap.EvidenceBundles)+len(snap.Findings)+len(snap.RepairPlans))
-	refs = append(refs, snap.Case.CaseID)
-	for _, t := range snap.Targets {
-		refs = append(refs, t.TargetID)
-	}
-	for _, e := range snap.EvidenceBundles {
-		refs = append(refs, e.EvidenceID)
-	}
-	for _, f := range snap.Findings {
-		refs = append(refs, f.FindingID)
-	}
-	for _, p := range snap.RepairPlans {
-		refs = append(refs, p.PlanID)
-	}
-	for _, e := range snap.ExecutionEvents {
-		refs = append(refs, e.ExecutionID)
-	}
-	for _, v := range snap.VerificationReports {
-		refs = append(refs, v.VerificationID)
-	}
-	if snap.WorkflowState != nil {
-		refs = append(refs, domain.DocumentIDCaseWorkflowState)
-	}
-	return refs
-}

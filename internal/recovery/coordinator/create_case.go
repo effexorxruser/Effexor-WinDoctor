@@ -34,6 +34,7 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 		return CaseView{}, err
 	}
 
+	const revision uint64 = 1
 	event, err := c.newAuditEvent(
 		snap.Case.CaseID,
 		domain.EventCaseCreated,
@@ -41,30 +42,25 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 		domain.WorkflowCreated,
 		domain.WorkflowEvidenceCollected,
 		"",
-		nil, // filled after workflow is attached
+		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
 	}
 	c.appendEvent(&snap, event)
-	if err := c.setWorkflow(&snap, domain.WorkflowEvidenceCollected, event.EventID, 1, nil, ""); err != nil {
+	if err := c.setWorkflow(&snap, domain.WorkflowEvidenceCollected, event.EventID, revision, nil, ""); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	// Re-stamp event refs with the full document set including workflow singleton.
-	for i := range snap.CoordinatorEvents {
-		if snap.CoordinatorEvents[i].EventID == event.EventID {
-			snap.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(snap)
-			snap.CoordinatorEvents[i].OccurredAt = snap.Case.UpdatedAt
-			break
-		}
-	}
+	stampAuditEvent(&snap, event.EventID, createOrAdoptRefs(snap), snap.Case.UpdatedAt)
 
 	if err := snap.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
 
+	snap.Normalize()
 	info, err := c.store.Commit(ctx, casestore.CommitRequest{
 		Snapshot:          snap,
 		ArtifactProvider:  req.ArtifactProvider,
@@ -74,11 +70,5 @@ func (c *Coordinator) CreateCase(ctx context.Context, req CreateCaseRequest) (Ca
 	if err != nil {
 		return CaseView{}, mapStoreWriteError(ctx, c, snap.Case.CaseID, "", err)
 	}
-
-	loaded, info2, err := c.store.LoadLatest(ctx, snap.Case.CaseID)
-	if err != nil {
-		return CaseView{}, err
-	}
-	_ = info
-	return c.viewFrom(loaded, info2)
+	return c.viewFrom(snap, info)
 }

@@ -82,7 +82,11 @@ func (c *Coordinator) loadExpected(ctx context.Context, caseID, expectedCommitID
 	return snap, info, nil
 }
 
+// commitSnapshot publishes snap and returns a CaseView for that exact revision.
+// It never LoadLatest after Commit, so a concurrent writer cannot alter the
+// returned CommitInfo.
 func (c *Coordinator) commitSnapshot(ctx context.Context, snap casestore.Snapshot, expectedParentCommitID string) (CaseView, error) {
+	snap.Normalize()
 	info, err := c.store.Commit(ctx, casestore.CommitRequest{
 		Snapshot:          snap,
 		Reason:            casestore.CommitReasonCaseSnapshot,
@@ -91,12 +95,7 @@ func (c *Coordinator) commitSnapshot(ctx context.Context, snap casestore.Snapsho
 	if err != nil {
 		return CaseView{}, mapStoreWriteError(ctx, c, snap.Case.CaseID, expectedParentCommitID, err)
 	}
-	loaded, info2, err := c.store.LoadLatest(ctx, snap.Case.CaseID)
-	if err != nil {
-		return CaseView{}, err
-	}
-	_ = info
-	return c.viewFrom(loaded, info2)
+	return c.viewFrom(snap, info)
 }
 
 func validatePlanForPR17(plan domain.RepairPlan, caseID string) error {
@@ -115,7 +114,7 @@ func validatePlanForPR17(plan domain.RepairPlan, caseID string) error {
 	return nil
 }
 
-// CommitAnalysis persists Findings and transitions to analyzed.
+// CommitAnalysis persists Findings (append-only) and transitions to analyzed.
 func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequest) (CaseView, error) {
 	actor := defaultActor(req.Actor, domain.ActorDeterministicAnalyzer)
 	reason := defaultReason(req.ReasonCode, "analysis_committed")
@@ -141,8 +140,13 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 		}
 		filled[i] = f
 	}
-	next.Findings = filled
+	merged, err := mergeFindingsAppendOnly(next.Findings, filled)
+	if err != nil {
+		return CaseView{}, err
+	}
+	next.Findings = merged
 
+	revision := nextRevision(snap)
 	event, err := c.newAuditEvent(
 		req.CaseID,
 		domain.EventAnalysisCommitted,
@@ -153,6 +157,7 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
@@ -162,16 +167,10 @@ func (c *Coordinator) CommitAnalysis(ctx context.Context, req CommitAnalysisRequ
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan); err != nil {
+	if err := c.setWorkflow(&next, to, event.EventID, revision, nil, activePlan); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	for i := range next.CoordinatorEvents {
-		if next.CoordinatorEvents[i].EventID == event.EventID {
-			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
-			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
-			break
-		}
-	}
+	stampAuditEvent(&next, event.EventID, analysisRefs(req.CaseID, filled), next.Case.UpdatedAt)
 
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
@@ -219,6 +218,7 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 		return CaseView{}, err
 	}
 
+	revision := nextRevision(snap)
 	event, err := c.newAuditEvent(
 		req.CaseID,
 		domain.EventPlanCommitted,
@@ -229,21 +229,16 @@ func (c *Coordinator) CommitPlan(ctx context.Context, req CommitPlanRequest) (Ca
 		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
 	}
 	c.appendEvent(&next, event)
-	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, plan.PlanID); err != nil {
+	if err := c.setWorkflow(&next, to, event.EventID, revision, nil, plan.PlanID); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	for i := range next.CoordinatorEvents {
-		if next.CoordinatorEvents[i].EventID == event.EventID {
-			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
-			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
-			break
-		}
-	}
+	stampAuditEvent(&next, event.EventID, planRefs(req.CaseID, plan), next.Case.UpdatedAt)
 
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
@@ -269,6 +264,7 @@ func (c *Coordinator) FailCase(ctx context.Context, req FailCaseRequest) (CaseVi
 		return CaseView{}, err
 	}
 	next := copySnapshot(snap)
+	revision := nextRevision(snap)
 	event, err := c.newAuditEvent(
 		req.CaseID,
 		domain.EventCaseFailed,
@@ -279,6 +275,7 @@ func (c *Coordinator) FailCase(ctx context.Context, req FailCaseRequest) (CaseVi
 		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
@@ -289,16 +286,10 @@ func (c *Coordinator) FailCase(ctx context.Context, req FailCaseRequest) (CaseVi
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), failure, activePlan); err != nil {
+	if err := c.setWorkflow(&next, to, event.EventID, revision, failure, activePlan); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	for i := range next.CoordinatorEvents {
-		if next.CoordinatorEvents[i].EventID == event.EventID {
-			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
-			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
-			break
-		}
-	}
+	stampAuditEvent(&next, event.EventID, terminalRefs(next), next.Case.UpdatedAt)
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
@@ -323,6 +314,7 @@ func (c *Coordinator) CancelCase(ctx context.Context, req CancelCaseRequest) (Ca
 		return CaseView{}, err
 	}
 	next := copySnapshot(snap)
+	revision := nextRevision(snap)
 	event, err := c.newAuditEvent(
 		req.CaseID,
 		domain.EventCaseCancelled,
@@ -333,6 +325,7 @@ func (c *Coordinator) CancelCase(ctx context.Context, req CancelCaseRequest) (Ca
 		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
@@ -342,16 +335,10 @@ func (c *Coordinator) CancelCase(ctx context.Context, req CancelCaseRequest) (Ca
 	if next.WorkflowState != nil {
 		activePlan = next.WorkflowState.ActivePlanID
 	}
-	if err := c.setWorkflow(&next, to, event.EventID, nextRevision(snap), nil, activePlan); err != nil {
+	if err := c.setWorkflow(&next, to, event.EventID, revision, nil, activePlan); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	for i := range next.CoordinatorEvents {
-		if next.CoordinatorEvents[i].EventID == event.EventID {
-			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
-			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
-			break
-		}
-	}
+	stampAuditEvent(&next, event.EventID, terminalRefs(next), next.Case.UpdatedAt)
 	if err := next.Validate(); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}

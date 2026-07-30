@@ -41,7 +41,7 @@ var coordinatorEventTypes = map[string]struct{}{
 	string(EventLegacyCaseAdopted): {},
 }
 
-// StateChangingEventTypes advance WorkflowState.Revision.
+// StateChangingEventTypes advance WorkflowState.Revision and require workflow_revision.
 var StateChangingEventTypes = map[CoordinatorEventType]struct{}{
 	EventCaseCreated:       {},
 	EventLegacyCaseAdopted: {},
@@ -57,6 +57,10 @@ var StateChangingEventTypes = map[CoordinatorEventType]struct{}{
 const DocumentIDCaseWorkflowState = "case-workflow-state"
 
 // CoordinatorEvent is an immutable audit record stored inside a Case snapshot.
+//
+// Authoritative resulting snapshot/commit IDs live on Case Store CommitInfo /
+// commit-record, not on this event. Those identifiers cannot be embedded in the
+// event that participates in computing them (circular dependency).
 type CoordinatorEvent struct {
 	SchemaName            string               `json:"schema_name"`
 	SchemaVersion         string               `json:"schema_version"`
@@ -68,8 +72,7 @@ type CoordinatorEvent struct {
 	PreviousState         string               `json:"previous_state,omitempty"`
 	NextState             string               `json:"next_state,omitempty"`
 	ExpectedCommitID      string               `json:"expected_commit_id,omitempty"`
-	ResultingSnapshotID   string               `json:"resulting_snapshot_id,omitempty"`
-	ResultingCommitID     string               `json:"resulting_commit_id,omitempty"`
+	WorkflowRevision      uint64               `json:"workflow_revision,omitempty"`
 	ReferencedDocumentIDs []string             `json:"referenced_document_ids"`
 	ReasonCode            string               `json:"reason_code"`
 	CommandID             string               `json:"command_id,omitempty"`
@@ -109,15 +112,13 @@ func (e CoordinatorEvent) Validate() error {
 			return err
 		}
 	}
-	if e.ResultingSnapshotID != "" {
-		if err := requireMatch("resulting_snapshot_id", e.ResultingSnapshotID, reSnapshotID); err != nil {
-			return err
+	_, changing := StateChangingEventTypes[e.EventType]
+	if changing {
+		if e.WorkflowRevision == 0 {
+			return fmt.Errorf("workflow_revision is required and must be >= 1 for state-changing event %q", e.EventType)
 		}
-	}
-	if e.ResultingCommitID != "" {
-		if err := requireMatch("resulting_commit_id", e.ResultingCommitID, reCommitID); err != nil {
-			return err
-		}
+	} else if e.WorkflowRevision != 0 {
+		return fmt.Errorf("workflow_revision must be absent for non-state-changing event %q", e.EventType)
 	}
 	if e.ReferencedDocumentIDs == nil {
 		return fmt.Errorf("referenced_document_ids is required")

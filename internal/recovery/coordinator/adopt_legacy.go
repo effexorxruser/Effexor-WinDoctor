@@ -19,6 +19,9 @@ type AdoptLegacyCaseRequest struct {
 // AdoptLegacyCase attaches case-workflow-state to a legacy snapshot that already
 // has Case/Targets/Evidence but no WorkflowState. LoadCase remains read-only;
 // CreateCase is never used as a migration path.
+//
+// Adoption requires empty CoordinatorEvents, Findings, RepairPlans,
+// ExecutionEvents, and VerificationReports.
 func (c *Coordinator) AdoptLegacyCase(ctx context.Context, req AdoptLegacyCaseRequest) (CaseView, error) {
 	actor := defaultActor(req.Actor, domain.ActorSystem)
 	reason := defaultReason(req.ReasonCode, "legacy_case_adopted")
@@ -33,6 +36,9 @@ func (c *Coordinator) AdoptLegacyCase(ctx context.Context, req AdoptLegacyCaseRe
 	if snap.WorkflowState != nil {
 		return CaseView{}, fmt.Errorf("%w: workflow state already present", ErrLegacyAdoptionRejected)
 	}
+	if len(snap.CoordinatorEvents) > 0 {
+		return CaseView{}, fmt.Errorf("%w: legacy snapshot contains coordinator events", ErrLegacyAdoptionRejected)
+	}
 	if len(snap.Findings) > 0 || len(snap.RepairPlans) > 0 ||
 		len(snap.ExecutionEvents) > 0 || len(snap.VerificationReports) > 0 {
 		return CaseView{}, fmt.Errorf("%w: legacy snapshot contains later lifecycle documents", ErrLegacyAdoptionRejected)
@@ -42,6 +48,7 @@ func (c *Coordinator) AdoptLegacyCase(ctx context.Context, req AdoptLegacyCaseRe
 	}
 
 	next := copySnapshot(snap)
+	const revision uint64 = 1
 	event, err := c.newAuditEvent(
 		req.CaseID,
 		domain.EventLegacyCaseAdopted,
@@ -52,20 +59,19 @@ func (c *Coordinator) AdoptLegacyCase(ctx context.Context, req AdoptLegacyCaseRe
 		nil,
 		reason,
 		req.CommandID,
+		revision,
 	)
 	if err != nil {
 		return CaseView{}, err
 	}
-	// Clear PreviousState for adoption (omit empty).
 	event.PreviousState = ""
 	c.appendEvent(&next, event)
-	if err := c.setWorkflow(&next, domain.WorkflowEvidenceCollected, event.EventID, 1, nil, ""); err != nil {
+	if err := c.setWorkflow(&next, domain.WorkflowEvidenceCollected, event.EventID, revision, nil, ""); err != nil {
 		return CaseView{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
+	stampAuditEvent(&next, event.EventID, createOrAdoptRefs(next), next.Case.UpdatedAt)
 	for i := range next.CoordinatorEvents {
 		if next.CoordinatorEvents[i].EventID == event.EventID {
-			next.CoordinatorEvents[i].ReferencedDocumentIDs = fullDocumentRefs(next)
-			next.CoordinatorEvents[i].OccurredAt = next.Case.UpdatedAt
 			next.CoordinatorEvents[i].PreviousState = ""
 			break
 		}
