@@ -247,6 +247,7 @@
               "bcd_missing",
               "bcd_ambiguous",
               "bitlocker_inaccessible",
+              "bitlocker_status_unknown",
               "storage_health_unsafe",
               "storage_health_unknown",
               "evidence_incomplete",

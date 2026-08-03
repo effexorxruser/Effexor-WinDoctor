@@ -93,7 +93,8 @@ var (
 		"windows_ambiguous": {}, "windows_partition_unresolved": {},
 		"system_disk_unresolved": {}, "esp_missing": {}, "esp_ambiguous": {},
 		"bcd_missing": {}, "bcd_ambiguous": {}, "bitlocker_inaccessible": {},
-		"storage_health_unsafe": {}, "storage_health_unknown": {},
+		"bitlocker_status_unknown": {},
+		"storage_health_unsafe":    {}, "storage_health_unknown": {},
 		"evidence_incomplete": {}, "relation_runtime_only": {},
 		"unsupported_layout": {}, "technician_selection_required": {},
 	}

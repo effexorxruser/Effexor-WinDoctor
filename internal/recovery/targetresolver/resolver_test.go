@@ -174,6 +174,81 @@ func TestTechnicianESPFromUnrelatedDiskRejected(t *testing.T) {
 	}
 }
 
+func TestTechnicianIncompleteSelectionRejected(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshot(t, "uefi", true)
+	_, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+		Selection: &targetresolver.TechnicianSelection{
+			WindowsTargetID: "target-windows-install-01",
+			// Missing partition/disk/ESP must not silently become eligible.
+		},
+	})
+	if err == nil {
+		t.Fatal("expected incomplete technician selection error")
+	}
+	if !strings.Contains(err.Error(), "technician selection is incomplete") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTechnicianCompleteSelectionEligible(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshot(t, "uefi", true)
+	res, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+		Selection: &targetresolver.TechnicianSelection{
+			WindowsTargetID:          "target-windows-install-01",
+			WindowsPartitionTargetID: "target-part-windows-01",
+			SystemDiskTargetID:       "target-disk-nvme0n1",
+			ESPTargetID:              "target-part-esp-01",
+			BCDTargetID:              "target-bcd-store-01",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Topology.Selection.Source != domain.SelectionTechnician {
+		t.Fatalf("selection %s", res.Topology.Selection.Source)
+	}
+	if !res.Topology.MutationEligibility.Eligible {
+		t.Fatalf("complete connected technician selection should be eligible diagnostically: %v", res.Topology.MutationEligibility.Blockers)
+	}
+}
+
+func TestTechnicianCannotClearBitLockerBlocker(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshotWithBitLocker(t, "locked")
+	res, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+		Selection: &targetresolver.TechnicianSelection{
+			WindowsTargetID:          "target-windows-install-01",
+			WindowsPartitionTargetID: "target-part-windows-01",
+			SystemDiskTargetID:       "target-disk-nvme0n1",
+			ESPTargetID:              "target-part-esp-01",
+			BCDTargetID:              "target-bcd-store-01",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Topology.MutationEligibility.Eligible {
+		t.Fatal("technician selection must not clear bitlocker blocker")
+	}
+	found := false
+	for _, b := range res.Topology.MutationEligibility.Blockers {
+		if b == "bitlocker_inaccessible" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected bitlocker_inaccessible: %v", res.Topology.MutationEligibility.Blockers)
+	}
+}
+
 func TestBitLockerUnlockedDoesNotBlock(t *testing.T) {
 	t.Parallel()
 	snap := topologySnapshotWithBitLocker(t, "unlocked")
@@ -210,6 +285,118 @@ func TestBitLockerLockedAddsBlocker(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("locked bitlocker must add bitlocker_inaccessible blocker: %v", res.Topology.MutationEligibility.Blockers)
+	}
+}
+
+func TestBitLockerUnknownStatusAddsBlocker(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshotWithBitLocker(t, "")
+	res, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range res.Topology.MutationEligibility.Blockers {
+		if b == "bitlocker_status_unknown" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("unknown bitlocker status must block: %v", res.Topology.MutationEligibility.Blockers)
+	}
+	if res.Topology.MutationEligibility.Eligible {
+		t.Fatal("unknown bitlocker must not be eligible")
+	}
+}
+
+func TestStorageHealthUnknownEmptyStatus(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshot(t, "uefi", true)
+	for i, e := range snap.EvidenceBundles {
+		if e.TargetID != "target-firmware-system" {
+			continue
+		}
+		var env map[string]any
+		if err := json.Unmarshal(e.Facts, &env); err != nil {
+			t.Fatal(err)
+		}
+		payload := env["payload"].(map[string]any)
+		payload["drive_health"] = []any{map[string]any{"device_id": "0", "health_status": "", "operational_status": ""}}
+		raw, err := json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap.EvidenceBundles[i].Facts = raw
+	}
+	res, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range res.Topology.MutationEligibility.Blockers {
+		if b == "storage_health_unknown" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("empty health status must add storage_health_unknown: %v", res.Topology.MutationEligibility.Blockers)
+	}
+	if res.Topology.MutationEligibility.Eligible {
+		t.Fatal("unknown storage health must not be eligible")
+	}
+}
+
+func TestStorageHealthCriticalPriorityOverUnknown(t *testing.T) {
+	t.Parallel()
+	snap := topologySnapshot(t, "uefi", true)
+	for i, e := range snap.EvidenceBundles {
+		if e.TargetID != "target-firmware-system" {
+			continue
+		}
+		var env map[string]any
+		if err := json.Unmarshal(e.Facts, &env); err != nil {
+			t.Fatal(err)
+		}
+		payload := env["payload"].(map[string]any)
+		payload["drive_health"] = []any{
+			map[string]any{"device_id": "0", "health_status": "", "operational_status": "unknown"},
+			map[string]any{"device_id": "1", "health_status": "Critical", "operational_status": "Failed"},
+		}
+		raw, err := json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap.EvidenceBundles[i].Facts = raw
+	}
+	res, err := targetresolver.Resolve(context.Background(), targetresolver.Request{
+		Snapshot: snap, CommitID: "commit-111111111111111111111111",
+		Now: time.Date(2026, 7, 27, 12, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafe := false
+	unknown := false
+	for _, b := range res.Topology.MutationEligibility.Blockers {
+		if b == "storage_health_unsafe" {
+			unsafe = true
+		}
+		if b == "storage_health_unknown" {
+			unknown = true
+		}
+	}
+	if !unsafe {
+		t.Fatalf("critical health must add storage_health_unsafe: %v", res.Topology.MutationEligibility.Blockers)
+	}
+	if unknown {
+		t.Fatalf("critical health must take priority over unknown: %v", res.Topology.MutationEligibility.Blockers)
 	}
 }
 

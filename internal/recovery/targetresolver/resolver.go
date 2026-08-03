@@ -561,16 +561,32 @@ func resolveBitLocker(idx *index) ([]domain.TopologyAmbiguity, []string, []strin
 		}
 		bl, err := b.BitLocker()
 		if err != nil {
+			block = append(block, "bitlocker_status_unknown")
+			amb = append(amb, domain.TopologyAmbiguity{
+				Code: "bitlocker_status_unknown", Message: "bitlocker volume status could not be decoded",
+				TargetIDs: []string{b.Bundle.TargetID}, EvidenceRefs: []string{b.Bundle.EvidenceID},
+			})
 			continue
 		}
 		status := strings.ToLower(strings.TrimSpace(bl.LockStatus))
 		protection := strings.ToLower(strings.TrimSpace(bl.ProtectionStatus))
 		locked := status == "locked" || protection == "locked"
 		inaccessible := status == "inaccessible" || protection == "inaccessible"
-		if locked || inaccessible {
+		unlocked := status == "unlocked" || protection == "unlocked"
+		switch {
+		case locked || inaccessible:
 			block = append(block, "bitlocker_inaccessible")
 			amb = append(amb, domain.TopologyAmbiguity{
 				Code: "bitlocker_inaccessible", Message: "bitlocker volume is locked or inaccessible",
+				TargetIDs: []string{b.Bundle.TargetID}, EvidenceRefs: []string{b.Bundle.EvidenceID},
+			})
+		case unlocked:
+			// Known safe lock state for topology eligibility diagnostics.
+		default:
+			// Empty or unrecognized statuses are not treated as safe.
+			block = append(block, "bitlocker_status_unknown")
+			amb = append(amb, domain.TopologyAmbiguity{
+				Code: "bitlocker_status_unknown", Message: "bitlocker volume status is empty or unrecognized",
 				TargetIDs: []string{b.Bundle.TargetID}, EvidenceRefs: []string{b.Bundle.EvidenceID},
 			})
 		}
@@ -591,6 +607,7 @@ func resolveHealth(idx *index) ([]domain.TopologyAmbiguity, []string, []string) 
 	block := make([]string, 0)
 	found := false
 	unsafe := false
+	unknown := false
 	for _, view := range idx.views {
 		if view.EntityKind != "firmware_environment" {
 			continue
@@ -604,18 +621,26 @@ func resolveHealth(idx *index) ([]domain.TopologyAmbiguity, []string, []string) 
 		}
 		found = true
 		for _, rec := range records {
-			hs, _ := rec["health_status"].(string)
-			os, _ := rec["operational_status"].(string)
-			joined := strings.ToLower(hs + " " + os)
-			if strings.Contains(joined, "fail") || strings.Contains(joined, "unhealthy") || strings.Contains(joined, "critical") {
+			switch classifyDriveHealth(rec) {
+			case driveHealthUnsafe:
 				unsafe = true
+			case driveHealthUnknown:
+				unknown = true
 			}
 		}
 	}
-	if !found {
+	switch {
+	case !found || (unknown && !unsafe):
 		block = append(block, "storage_health_unknown")
 		lims = append(lims, "storage_health_unknown")
-	} else if unsafe {
+		if unknown {
+			amb = append(amb, domain.TopologyAmbiguity{
+				Code: "storage_health_unknown", Message: "storage health status is empty or unrecognized",
+				TargetIDs: targetIDs(idx.byType["disk"]), EvidenceRefs: idx.allEvidenceIDs(),
+			})
+		}
+	case unsafe:
+		// Critical/unsafe health has priority over unknown when both appear.
 		block = append(block, "storage_health_unsafe")
 		amb = append(amb, domain.TopologyAmbiguity{
 			Code: "storage_health_unsafe", Message: "storage health reports unsafe status",
@@ -623,6 +648,41 @@ func resolveHealth(idx *index) ([]domain.TopologyAmbiguity, []string, []string) 
 		})
 	}
 	return amb, uniqueSorted(lims), uniqueSorted(block)
+}
+
+type driveHealthClass int
+
+const (
+	driveHealthHealthy driveHealthClass = iota
+	driveHealthUnknown
+	driveHealthUnsafe
+)
+
+func classifyDriveHealth(rec map[string]any) driveHealthClass {
+	hs, _ := rec["health_status"].(string)
+	os, _ := rec["operational_status"].(string)
+	hs = strings.ToLower(strings.TrimSpace(hs))
+	os = strings.ToLower(strings.TrimSpace(os))
+	joined := strings.TrimSpace(hs + " " + os)
+	if joined == "" || hs == "unknown" || os == "unknown" {
+		return driveHealthUnknown
+	}
+	if strings.Contains(joined, "fail") || strings.Contains(joined, "unhealthy") || strings.Contains(joined, "critical") {
+		return driveHealthUnsafe
+	}
+	if isRecognizedHealthyStatus(hs) || isRecognizedHealthyStatus(os) {
+		return driveHealthHealthy
+	}
+	return driveHealthUnknown
+}
+
+func isRecognizedHealthyStatus(v string) bool {
+	switch v {
+	case "healthy", "good", "ok", "passed", "pass":
+		return true
+	default:
+		return false
+	}
 }
 
 func applySelection(
@@ -690,10 +750,10 @@ func applySelection(
 }
 
 func validateTechnicianSelection(idx *index, relations []domain.TopologyRelation, sel *TechnicianSelection) (domain.TopologySelection, error) {
+	if sel.WindowsTargetID == "" || sel.WindowsPartitionTargetID == "" || sel.SystemDiskTargetID == "" || sel.ESPTargetID == "" {
+		return domain.TopologySelection{}, fmt.Errorf("technician selection is incomplete: windows, windows partition, system disk, and ESP are required")
+	}
 	check := func(id, wantType string) error {
-		if id == "" {
-			return nil
-		}
 		t, ok := idx.targets[id]
 		if !ok {
 			return fmt.Errorf("selection target %q not found", id)
@@ -715,13 +775,13 @@ func validateTechnicianSelection(idx *index, relations []domain.TopologyRelation
 	if err := check(sel.ESPTargetID, "partition"); err != nil {
 		return domain.TopologySelection{}, err
 	}
-	if err := check(sel.BCDTargetID, "boot_store"); err != nil {
-		return domain.TopologySelection{}, err
-	}
-	if sel.ESPTargetID != "" && sel.SystemDiskTargetID != "" {
-		if !diskIsGPT(idx, sel.SystemDiskTargetID) {
-			return domain.TopologySelection{}, fmt.Errorf("cannot select ESP on non-GPT disk")
+	if sel.BCDTargetID != "" {
+		if err := check(sel.BCDTargetID, "boot_store"); err != nil {
+			return domain.TopologySelection{}, err
 		}
+	}
+	if !diskIsGPT(idx, sel.SystemDiskTargetID) {
+		return domain.TopologySelection{}, fmt.Errorf("cannot select ESP on non-GPT disk")
 	}
 	out := domain.TopologySelection{
 		Source:                   domain.SelectionTechnician,
