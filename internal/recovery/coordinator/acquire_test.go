@@ -100,7 +100,7 @@ func TestAcquisitionStaleCommitRejected(t *testing.T) {
 	}
 }
 
-func TestAcquisitionRejectedAfterAnalyzed(t *testing.T) {
+func TestAcquisitionAllowedAfterAnalyzed(t *testing.T) {
 	t.Parallel()
 	c, _, _ := openCoord(t)
 	view := mustCreate(t, c)
@@ -116,7 +116,7 @@ func TestAcquisitionRejectedAfterAnalyzed(t *testing.T) {
 		t.Fatal(err)
 	}
 	fw := firmwareTarget(t, analyzed)
-	_, err = c.ExecuteReadOperation(context.Background(), coordinator.ExecuteReadOperationRequest{
+	res, err := c.ExecuteReadOperation(context.Background(), coordinator.ExecuteReadOperationRequest{
 		CaseID:           analyzed.Snapshot.Case.CaseID,
 		ExpectedCommitID: analyzed.CommitInfo.CommitID,
 		RequestID:        "acqreq-dddddddddddddddddddddddd",
@@ -125,8 +125,14 @@ func TestAcquisitionRejectedAfterAnalyzed(t *testing.T) {
 		TargetID:         fw,
 		Parameters:       json.RawMessage(`{}`),
 	})
-	if !errors.Is(err, coordinator.ErrIllegalTransition) {
-		t.Fatalf("got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.CaseView.State != domain.WorkflowAnalyzed {
+		t.Fatalf("state=%s", res.CaseView.State)
+	}
+	if res.CaseView.Snapshot.WorkflowState.Revision != analyzed.Snapshot.WorkflowState.Revision {
+		t.Fatal("workflow revision must not change")
 	}
 }
 

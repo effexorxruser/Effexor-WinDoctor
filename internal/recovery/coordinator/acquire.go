@@ -86,7 +86,7 @@ func (c *Coordinator) ExecuteReadOperation(ctx context.Context, req ExecuteReadO
 	if err != nil {
 		return ExecuteReadOperationResult{}, err
 	}
-	if err := requireEvidenceCollected(snap, req.CaseID); err != nil {
+	if err := requireAcquisitionAllowed(snap, req.CaseID); err != nil {
 		return ExecuteReadOperationResult{}, err
 	}
 	if existing, ok := findAcquisition(snap, req.RequestID); ok {
@@ -227,7 +227,7 @@ func (c *Coordinator) ResolveWindowsBootTopology(ctx context.Context, req Resolv
 	if err != nil {
 		return ResolveWindowsBootTopologyResult{}, err
 	}
-	if err := requireEvidenceCollected(snap, req.CaseID); err != nil {
+	if err := requireAcquisitionAllowed(snap, req.CaseID); err != nil {
 		return ResolveWindowsBootTopologyResult{}, err
 	}
 	if existing, ok := findAcquisition(snap, req.RequestID); ok {
@@ -332,18 +332,20 @@ func (c *Coordinator) ResolveWindowsBootTopology(ctx context.Context, req Resolv
 	}, nil
 }
 
-func requireEvidenceCollected(snap casestore.Snapshot, caseID string) error {
+func requireAcquisitionAllowed(snap casestore.Snapshot, caseID string) error {
 	state := currentState(snap)
-	if state != domain.WorkflowEvidenceCollected {
+	switch state {
+	case domain.WorkflowEvidenceCollected, domain.WorkflowAnalyzed:
+		return nil
+	default:
 		return &TransitionError{
 			CaseID:  caseID,
 			From:    string(state),
 			To:      string(domain.WorkflowEvidenceCollected),
 			Reason:  "acquisition_not_allowed",
-			Message: fmt.Sprintf("PR #18 read/topology acquisition requires workflow state evidence_collected (got %s)", state),
+			Message: fmt.Sprintf("read/topology acquisition requires workflow state evidence_collected or analyzed (got %s)", state),
 		}
 	}
-	return nil
 }
 
 func requireAcquisitionActor(actor domain.ActorType) (domain.ActorType, error) {

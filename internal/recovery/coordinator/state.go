@@ -68,6 +68,7 @@ func copySnapshot(src casestore.Snapshot) casestore.Snapshot {
 	dst.VerificationReports = append([]domain.VerificationReport(nil), src.VerificationReports...)
 	dst.CoordinatorEvents = append([]domain.CoordinatorEvent(nil), src.CoordinatorEvents...)
 	dst.EvidenceAcquisitions = append([]domain.EvidenceAcquisitionRecord(nil), src.EvidenceAcquisitions...)
+	dst.AgentConsultations = append([]domain.AgentConsultation(nil), src.AgentConsultations...)
 	if src.WorkflowState != nil {
 		ws := *src.WorkflowState
 		if src.WorkflowState.Failure != nil {
