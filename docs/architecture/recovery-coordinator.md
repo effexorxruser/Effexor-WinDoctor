@@ -13,10 +13,12 @@ records typed audit events.
 
 This package does **not**:
 
-- run Boot Doctor rules;
 - call the model gateway;
 - approve, back up, or execute repairs;
 - expose a CLI or GUI.
+
+Deterministic Boot Doctor analysis is available via `CommitBootDoctorAnalysis`
+(PR #19). It only emits Findings; it does not repair or grant mutation authority.
 
 Windows boot topology resolution and typed read-only operations are provided as
 **read-only acquisition APIs** (PR #18). See linked architecture docs below.
@@ -39,10 +41,28 @@ They do not mutate a recovery target and do not advance workflow beyond
 
 | Method | Effect |
 |--------|--------|
-| `ExecuteReadOperation` | Run a catalogued read-only operation → append Evidence (+ optional Targets) and one `EvidenceAcquisitionRecord`; workflow unchanged |
-| `ResolveWindowsBootTopology` | Run advisory target resolver → append topology Evidence and acquisition record; workflow unchanged |
+| `ExecuteReadOperation` | Run typed read-only catalog op; may append Evidence + acquisition provenance |
+| `ResolveWindowsBootTopology` | Resolve advisory topology; may append topology Evidence + acquisition |
 
-Both methods:
+### Boot Doctor analysis (PR #19)
+
+| Method | Effect |
+|--------|--------|
+| `CommitBootDoctorAnalysis` | Analyze persisted topology → append Findings → `analyzed` |
+
+`CommitBootDoctorAnalysis`:
+
+- requires verified Case Store integrity;
+- loads persisted `windows-boot-topology` Evidence;
+- runs pure `bootdoctor.Analyze`;
+- commits Findings through the existing analysis authority path;
+- advances `evidence_collected → analyzed` when legal;
+- is idempotent on identical `request_id` when Findings already match;
+- does **not** execute repairs or grant mutation authority.
+
+### Read-only acquisition notes (PR #18)
+
+Both acquisition methods:
 
 - require `WorkflowState.State == evidence_collected`;
 - verify Case Store integrity and `ExpectedCommitID`;
