@@ -20,6 +20,7 @@ type Snapshot struct {
 	WorkflowState        *domain.CaseWorkflowState
 	CoordinatorEvents    []domain.CoordinatorEvent
 	EvidenceAcquisitions []domain.EvidenceAcquisitionRecord
+	AgentConsultations   []domain.AgentConsultation
 }
 
 // Options configures Store open-time dependencies.
