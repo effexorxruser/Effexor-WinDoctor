@@ -26,6 +26,8 @@
         "case_created",
         "analysis_committed",
         "plan_committed",
+        "policy_evaluated",
+        "approval_committed",
         "case_failed",
         "case_cancelled",
         "legacy_case_adopted"
@@ -108,9 +110,29 @@
     },
     {
       "properties": {
+        "event_type": { "const": "policy_evaluated" },
+        "actor_type": { "enum": ["policy", "system"] },
+        "previous_state": { "const": "plan_proposed" },
+        "next_state": { "const": "awaiting_approval" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
+        "event_type": { "const": "approval_committed" },
+        "actor_type": { "const": "technician" },
+        "previous_state": { "const": "awaiting_approval" },
+        "next_state": { "const": "approved" },
+        "workflow_revision": { "type": "integer", "minimum": 2 }
+      },
+      "required": ["previous_state", "next_state", "workflow_revision", "expected_commit_id"]
+    },
+    {
+      "properties": {
         "event_type": { "const": "case_failed" },
         "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
-        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed", "awaiting_approval", "approved"] },
         "next_state": { "const": "failed" },
         "workflow_revision": { "type": "integer", "minimum": 2 }
       },
@@ -120,7 +142,7 @@
       "properties": {
         "event_type": { "const": "case_cancelled" },
         "actor_type": { "enum": ["system", "technician", "deterministic_analyzer"] },
-        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed"] },
+        "previous_state": { "enum": ["evidence_collected", "analyzed", "plan_proposed", "awaiting_approval", "approved"] },
         "next_state": { "const": "cancelled" },
         "workflow_revision": { "type": "integer", "minimum": 2 }
       },

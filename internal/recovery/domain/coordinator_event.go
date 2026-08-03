@@ -27,6 +27,8 @@ const (
 	EventCaseCreated       CoordinatorEventType = "case_created"
 	EventAnalysisCommitted CoordinatorEventType = "analysis_committed"
 	EventPlanCommitted     CoordinatorEventType = "plan_committed"
+	EventPolicyEvaluated   CoordinatorEventType = "policy_evaluated"
+	EventApprovalCommitted CoordinatorEventType = "approval_committed"
 	EventCaseFailed        CoordinatorEventType = "case_failed"
 	EventCaseCancelled     CoordinatorEventType = "case_cancelled"
 	EventLegacyCaseAdopted CoordinatorEventType = "legacy_case_adopted"
@@ -34,7 +36,8 @@ const (
 
 var coordinatorEventTypes = map[string]struct{}{
 	string(EventCaseCreated): {}, string(EventAnalysisCommitted): {},
-	string(EventPlanCommitted): {}, string(EventCaseFailed): {},
+	string(EventPlanCommitted): {}, string(EventPolicyEvaluated): {},
+	string(EventApprovalCommitted): {}, string(EventCaseFailed): {},
 	string(EventCaseCancelled): {}, string(EventLegacyCaseAdopted): {},
 }
 

@@ -1,0 +1,20 @@
+{
+  "schema_name": "policy-evaluation",
+  "schema_version": "1.0.0",
+  "evaluation_id": "pol-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "request_id": "polreq-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_id": "plan-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_commit_id": "commit-111111111111111111111111",
+  "topology_id": "topology-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "evaluated_at": "2026-08-03T12:00:00Z",
+  "decision": "allowed",
+  "reason_codes": ["policy_gates_passed"],
+  "policy_version": "1.0.0",
+  "input_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "limitations": [
+    "Policy allowed does not authorize execution.",
+    "Backup and typed executor gates remain required after approval."
+  ]
+}

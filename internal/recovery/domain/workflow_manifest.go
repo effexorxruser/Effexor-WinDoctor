@@ -29,7 +29,8 @@ func CaseStateForWorkflow(state WorkflowStateName) (CaseState, error) {
 	case WorkflowAwaitingApproval:
 		return CaseStateAwaitingApproval, nil
 	case WorkflowApproved:
-		return CaseStatePlanned, nil // approval recorded separately in later PRs
+		// case-manifest has no APPROVED enum; RepairApproval document is authoritative.
+		return CaseStatePlanned, nil
 	case WorkflowBackingUp, WorkflowReadyToExecute:
 		return CaseStatePlanned, nil
 	case WorkflowExecuting:
