@@ -1,0 +1,20 @@
+{
+  "schema_name": "evidence-acquisition-record",
+  "schema_version": "1.0.0",
+  "acquisition_id": "acq-111111111111111111111111",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "request_id": "acqreq-222222222222222222222222",
+  "source_commit_id": "commit-333333333333333333333333",
+  "producer_type": "target_resolver",
+  "producer_id": "effexor-recovery-target-resolver",
+  "producer_version": "1.0.0",
+  "actor_type": "system",
+  "acquired_at": "not-a-timestamp",
+  "target_ids": [],
+  "input_evidence_ids": [],
+  "added_target_ids": [],
+  "added_evidence_ids": ["evidence-cccccccccccccccccccccccc"],
+  "parameters_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "result_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "limitations": []
+}

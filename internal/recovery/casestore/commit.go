@@ -74,6 +74,9 @@ func (s *Store) commitLocked(ctx context.Context, request CommitRequest, warning
 	if err != nil {
 		return CommitInfo{}, err
 	}
+	if err := s.validateAcquisitionCommitProvenance(caseID, chain, len(chain), request.Snapshot); err != nil {
+		return CommitInfo{}, err
+	}
 
 	createdAt := request.Snapshot.Case.UpdatedAt
 	// Placeholder artifact entries use blob paths; bytes ingested below.

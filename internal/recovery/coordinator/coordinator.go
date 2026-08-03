@@ -9,6 +9,7 @@ import (
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/casestore"
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/domain"
 	"github.com/effexorxruser/EffexorWinPE/internal/recovery/importer/legacyreport"
+	readops "github.com/effexorxruser/EffexorWinPE/internal/recovery/operations/read"
 )
 
 // Store is the Case Store surface required by the Coordinator.
@@ -39,12 +40,14 @@ type Coordinator struct {
 	importer LegacyImporter
 	clock    Clock
 	ids      IDSource
+	readOps  *readops.Registry
 }
 
 // Options configures optional Coordinator dependencies.
 type Options struct {
-	Clock Clock
-	IDs   IDSource
+	Clock        Clock
+	IDs          IDSource
+	ReadRegistry *readops.Registry
 }
 
 // New constructs a Coordinator. store and importer are required.
@@ -63,7 +66,15 @@ func New(store Store, importer LegacyImporter, opts Options) (*Coordinator, erro
 	if ids == nil {
 		ids = randomIDSource{}
 	}
-	return &Coordinator{store: store, importer: importer, clock: clock, ids: ids}, nil
+	readReg := opts.ReadRegistry
+	if readReg == nil {
+		reg, err := readops.NewRegistry(readops.WithStoreVerifier(store))
+		if err != nil {
+			return nil, fmt.Errorf("%w: read registry: %v", ErrInvalidArgument, err)
+		}
+		readReg = reg
+	}
+	return &Coordinator{store: store, importer: importer, clock: clock, ids: ids, readOps: readReg}, nil
 }
 
 type systemClock struct{}

@@ -14,8 +14,8 @@ traceability of what already shipped under the EffexorWinPE MVP framing.
 - EffexorWinPE remains a profile; Recovery Core is the long-term center.
 - Desktop shell is an optional parallel UX track and must not gate Core.
 - Do not claim Boot Doctor, mutation ops, or Hub as shipped until they exist in
-  code. Case Store is implemented as a library; Coordinator is tracked in the
-  v0.1.0 program doc.
+  code. Case Store and Coordinator (PR #17) are implemented as libraries; PR #18
+  read-only acquisition is tracked in the v0.1.0 program doc.
 
 ## Sequence
 
@@ -24,10 +24,11 @@ traceability of what already shipped under the EffexorWinPE MVP framing.
 | **R0** | ~foundation docs | Product boundary, glossary, ADRs, overview | Completed |
 | **R1** | ~domain contracts | Shared typed contracts for evidence/finding/plan/operation | Completed |
 | — | ~legacy importer bridge | diagnostic-report 1.3.0 → Case/Target/Evidence | Completed |
-| **R2** | ~Case Store / coordinator foundation | Local persistence + orchestration API that cannot mutate yet | Case Store completed; Coordinator in progress (PR #17) |
+| **R2** | ~Case Store / coordinator foundation | Local persistence + orchestration API that cannot mutate yet | Completed (PR #17) |
+| **R2b** | ~read-only acquisition (PR #18) | Advisory topology resolver + typed read-only ops + incremental evidence | In progress (Draft PR #18) |
 | **R3** | ~Boot Doctor read path | First vertical: boot evidence → findings only | Not started |
 | **R4** | ~policy + approval surface | Explicit local approval records; UI cannot bypass | Not started |
-| **R5** | ~typed read ops expansion | More read-only operations under policy | Not started |
+| **R5** | ~typed read ops expansion | More read-only operations under policy | Not started (PR #18 seeds the registry; live probes remain future) |
 | **R6** | ~backup primitives | Backup/rollback material before any mutation | Not started |
 | **R7** | ~first typed mutations | Narrow mutating ops with mandatory verification | Not started |
 | **R8** | ~verification + completion | Close the loop for Boot Doctor cases | Not started |

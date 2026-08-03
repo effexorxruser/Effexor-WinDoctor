@@ -39,6 +39,10 @@ func TestCompileAllRecoverySchemas(t *testing.T) {
 		domain.SchemaVerificationReport,
 		domain.SchemaCaseWorkflowState,
 		domain.SchemaCoordinatorEvent,
+		domain.SchemaEvidenceAcquisitionRecord,
+		domain.SchemaWindowsBootTopology,
+		domain.SchemaReadOperationRequest,
+		domain.SchemaReadOperationResult,
 	}
 	for _, name := range want {
 		if schemas[name] == nil {
@@ -50,20 +54,24 @@ func TestCompileAllRecoverySchemas(t *testing.T) {
 func TestSchemaAcceptsValidFixtures(t *testing.T) {
 	t.Parallel()
 	mapping := map[string]string{
-		"case-manifest.json":            domain.SchemaCaseManifest,
-		"target.json":                   domain.SchemaTarget,
-		"evidence-bundle.json":          domain.SchemaEvidenceBundle,
-		"finding.json":                  domain.SchemaFinding,
-		"finding-insufficient.json":     domain.SchemaFinding,
-		"repair-plan.json":              domain.SchemaRepairPlan,
-		"repair-plan-ordered-deps.json": domain.SchemaRepairPlan,
-		"operation-descriptor.json":     domain.SchemaOperationDescriptor,
-		"execution-event.json":          domain.SchemaExecutionEvent,
-		"execution-event-started.json":  domain.SchemaExecutionEvent,
-		"execution-event-failed.json":   domain.SchemaExecutionEvent,
-		"verification-report.json":      domain.SchemaVerificationReport,
-		"case-workflow-state.json":      domain.SchemaCaseWorkflowState,
-		"coordinator-event.json":        domain.SchemaCoordinatorEvent,
+		"case-manifest.json":               domain.SchemaCaseManifest,
+		"target.json":                      domain.SchemaTarget,
+		"evidence-bundle.json":             domain.SchemaEvidenceBundle,
+		"finding.json":                     domain.SchemaFinding,
+		"finding-insufficient.json":        domain.SchemaFinding,
+		"repair-plan.json":                 domain.SchemaRepairPlan,
+		"repair-plan-ordered-deps.json":    domain.SchemaRepairPlan,
+		"operation-descriptor.json":        domain.SchemaOperationDescriptor,
+		"execution-event.json":             domain.SchemaExecutionEvent,
+		"execution-event-started.json":     domain.SchemaExecutionEvent,
+		"execution-event-failed.json":      domain.SchemaExecutionEvent,
+		"verification-report.json":         domain.SchemaVerificationReport,
+		"case-workflow-state.json":         domain.SchemaCaseWorkflowState,
+		"coordinator-event.json":           domain.SchemaCoordinatorEvent,
+		"evidence-acquisition-record.json": domain.SchemaEvidenceAcquisitionRecord,
+		"windows-boot-topology.json":       domain.SchemaWindowsBootTopology,
+		"read-operation-request.json":      domain.SchemaReadOperationRequest,
+		"read-operation-result.json":       domain.SchemaReadOperationResult,
 	}
 	for file, schemaName := range mapping {
 		file, schemaName := file, schemaName
@@ -138,11 +146,12 @@ func TestSchemaRejectsInvalidFixtures(t *testing.T) {
 // goOnlyDependencyGraphFixtures are accepted by JSON Schema (single-document)
 // but rejected by Go RepairPlan dependency-graph validation.
 var goOnlyDependencyGraphFixtures = map[string]struct{}{
-	"repair-plan-bad-dependency.json":       {},
-	"repair-plan-self-dependency.json":      {},
-	"repair-plan-forward-dependency.json":   {},
-	"repair-plan-duplicate-dependency.json": {},
-	"repair-plan-cycle.json":                {},
+	"repair-plan-bad-dependency.json":          {},
+	"repair-plan-self-dependency.json":         {},
+	"repair-plan-forward-dependency.json":      {},
+	"repair-plan-duplicate-dependency.json":    {},
+	"repair-plan-cycle.json":                   {},
+	"read-operation-result-command-field.json": {},
 }
 
 func goValidateFixture(schemaName, file string, raw []byte) error {
@@ -183,6 +192,18 @@ func goValidateFixture(schemaName, file string, raw []byte) error {
 			return err
 		}
 		return domain.ValidatePR17CoordinatorEventSemantics(v)
+	case domain.SchemaEvidenceAcquisitionRecord:
+		var v domain.EvidenceAcquisitionRecord
+		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaWindowsBootTopology:
+		var v domain.WindowsBootTopology
+		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaReadOperationRequest:
+		var v domain.ReadOperationRequest
+		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaReadOperationResult:
+		var v domain.ReadOperationResult
+		return domain.DecodeAndValidateJSON(raw, &v)
 	default:
 		return nil
 	}
@@ -192,20 +213,24 @@ func TestSchemaGoParity(t *testing.T) {
 	t.Parallel()
 
 	validMapping := map[string]string{
-		"case-manifest.json":            domain.SchemaCaseManifest,
-		"target.json":                   domain.SchemaTarget,
-		"evidence-bundle.json":          domain.SchemaEvidenceBundle,
-		"finding.json":                  domain.SchemaFinding,
-		"finding-insufficient.json":     domain.SchemaFinding,
-		"repair-plan.json":              domain.SchemaRepairPlan,
-		"repair-plan-ordered-deps.json": domain.SchemaRepairPlan,
-		"operation-descriptor.json":     domain.SchemaOperationDescriptor,
-		"execution-event.json":          domain.SchemaExecutionEvent,
-		"execution-event-started.json":  domain.SchemaExecutionEvent,
-		"execution-event-failed.json":   domain.SchemaExecutionEvent,
-		"verification-report.json":      domain.SchemaVerificationReport,
-		"case-workflow-state.json":      domain.SchemaCaseWorkflowState,
-		"coordinator-event.json":        domain.SchemaCoordinatorEvent,
+		"case-manifest.json":               domain.SchemaCaseManifest,
+		"target.json":                      domain.SchemaTarget,
+		"evidence-bundle.json":             domain.SchemaEvidenceBundle,
+		"finding.json":                     domain.SchemaFinding,
+		"finding-insufficient.json":        domain.SchemaFinding,
+		"repair-plan.json":                 domain.SchemaRepairPlan,
+		"repair-plan-ordered-deps.json":    domain.SchemaRepairPlan,
+		"operation-descriptor.json":        domain.SchemaOperationDescriptor,
+		"execution-event.json":             domain.SchemaExecutionEvent,
+		"execution-event-started.json":     domain.SchemaExecutionEvent,
+		"execution-event-failed.json":      domain.SchemaExecutionEvent,
+		"verification-report.json":         domain.SchemaVerificationReport,
+		"case-workflow-state.json":         domain.SchemaCaseWorkflowState,
+		"coordinator-event.json":           domain.SchemaCoordinatorEvent,
+		"evidence-acquisition-record.json": domain.SchemaEvidenceAcquisitionRecord,
+		"windows-boot-topology.json":       domain.SchemaWindowsBootTopology,
+		"read-operation-request.json":      domain.SchemaReadOperationRequest,
+		"read-operation-result.json":       domain.SchemaReadOperationResult,
 	}
 	for file, schemaName := range validMapping {
 		file, schemaName := file, schemaName
@@ -239,12 +264,16 @@ func TestSchemaGoParity(t *testing.T) {
 		{"case-workflow-state-", domain.SchemaCaseWorkflowState},
 		{"coordinator-event-", domain.SchemaCoordinatorEvent},
 		{"target-", domain.SchemaTarget},
+		{"evidence-acquisition-", domain.SchemaEvidenceAcquisitionRecord},
 		{"evidence-", domain.SchemaEvidenceBundle},
 		{"finding-", domain.SchemaFinding},
 		{"repair-plan-", domain.SchemaRepairPlan},
 		{"operation-", domain.SchemaOperationDescriptor},
 		{"execution-", domain.SchemaExecutionEvent},
 		{"verification-", domain.SchemaVerificationReport},
+		{"windows-boot-topology-", domain.SchemaWindowsBootTopology},
+		{"read-operation-request-", domain.SchemaReadOperationRequest},
+		{"read-operation-result-", domain.SchemaReadOperationResult},
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {

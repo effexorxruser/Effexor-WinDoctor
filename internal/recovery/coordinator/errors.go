@@ -32,7 +32,24 @@ var (
 
 	// ErrLegacyAdoptionRejected indicates AdoptLegacyCase preconditions failed.
 	ErrLegacyAdoptionRejected = errors.New("coordinator: legacy adoption rejected")
+
+	// ErrAcquisitionConflict indicates the same request_id was reused with a divergent request.
+	ErrAcquisitionConflict = errors.New("coordinator: acquisition request conflict")
 )
+
+// AcquisitionConflictError carries divergent acquisition request details.
+type AcquisitionConflictError struct {
+	CaseID    string
+	RequestID string
+}
+
+func (e *AcquisitionConflictError) Error() string {
+	return fmt.Sprintf("coordinator: case %s acquisition request %s conflicts with existing record", e.CaseID, e.RequestID)
+}
+
+func (e *AcquisitionConflictError) Is(target error) bool {
+	return target == ErrAcquisitionConflict
+}
 
 // RevisionConflictError carries optimistic concurrency details.
 type RevisionConflictError struct {

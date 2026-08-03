@@ -1,0 +1,10 @@
+{
+  "schema_name": "read-operation-request",
+  "schema_version": "1.0.0",
+  "request_id": "readreq-111111111111111111111111",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "operation_id": "boot.inspect_firmware_mode",
+  "operation_version": "1.0.0",
+  "target_id": "target-firmware-system",
+  "parameters": {}
+}

@@ -33,6 +33,37 @@ func requireRef(kind, id string, known map[string]struct{}) error {
 	return nil
 }
 
+// ValidateAcquisitionRefs checks acquisition case/target/evidence refs.
+func (r EvidenceAcquisitionRecord) ValidateAcquisitionRefs(refs CrossRefs) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if err := requireRef("case_id", r.CaseID, refs.CaseIDs); err != nil {
+		return err
+	}
+	for _, id := range r.TargetIDs {
+		if err := requireRef("target_id", id, refs.TargetIDs); err != nil {
+			return err
+		}
+	}
+	for _, id := range r.InputEvidenceIDs {
+		if err := requireRef("input_evidence_id", id, refs.EvidenceIDs); err != nil {
+			return err
+		}
+	}
+	for _, id := range r.AddedTargetIDs {
+		if err := requireRef("added_target_id", id, refs.TargetIDs); err != nil {
+			return err
+		}
+	}
+	for _, id := range r.AddedEvidenceIDs {
+		if err := requireRef("added_evidence_id", id, refs.EvidenceIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ValidateFindingRefs checks finding evidence/target refs against known IDs.
 func (f Finding) ValidateFindingRefs(refs CrossRefs) error {
 	if err := f.Validate(); err != nil {

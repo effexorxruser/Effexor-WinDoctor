@@ -33,6 +33,9 @@ func (s *Snapshot) Normalize() {
 	if s.CoordinatorEvents == nil {
 		s.CoordinatorEvents = []domain.CoordinatorEvent{}
 	}
+	if s.EvidenceAcquisitions == nil {
+		s.EvidenceAcquisitions = []domain.EvidenceAcquisitionRecord{}
+	}
 }
 
 // Validate checks Snapshot domain invariants before commit.
@@ -60,7 +63,8 @@ func (s Snapshot) Validate() error {
 	}
 	if s.WorkflowState == nil {
 		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 || len(s.ExecutionEvents) > 0 ||
-			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 {
+			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 ||
+			len(s.EvidenceAcquisitions) > 0 {
 			return fmt.Errorf("%w: lifecycle documents require workflow_state", ErrInvalidArgument)
 		}
 	}
@@ -158,6 +162,22 @@ func (s Snapshot) Validate() error {
 		eventIDs[ev.EventID] = struct{}{}
 	}
 
+	acquisitionIDs := make(map[string]struct{}, len(s.EvidenceAcquisitions))
+	requestIDs := make(map[string]struct{}, len(s.EvidenceAcquisitions))
+	for i, acq := range s.EvidenceAcquisitions {
+		if _, ok := acquisitionIDs[acq.AcquisitionID]; ok {
+			return fmt.Errorf("%w: duplicate acquisition_id %q", ErrInvalidArgument, acq.AcquisitionID)
+		}
+		acquisitionIDs[acq.AcquisitionID] = struct{}{}
+		if _, ok := requestIDs[acq.RequestID]; ok {
+			return fmt.Errorf("%w: duplicate acquisition request_id %q", ErrInvalidArgument, acq.RequestID)
+		}
+		requestIDs[acq.RequestID] = struct{}{}
+		if acq.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: evidence_acquisitions[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+
 	docIDs := make(map[string]struct{})
 	docIDs[s.Case.CaseID] = struct{}{}
 	for id := range targetIDs {
@@ -179,6 +199,9 @@ func (s Snapshot) Validate() error {
 		docIDs[id] = struct{}{}
 	}
 	for id := range eventIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range acquisitionIDs {
 		docIDs[id] = struct{}{}
 	}
 	if s.WorkflowState != nil {
@@ -246,7 +269,16 @@ func (s Snapshot) Validate() error {
 			return fmt.Errorf("coordinator_events[%d]: %w", i, err)
 		}
 	}
-	if s.WorkflowState != nil {
+	for i, acq := range s.EvidenceAcquisitions {
+		if err := acq.ValidateAcquisitionRefs(refs); err != nil {
+			return fmt.Errorf("evidence_acquisitions[%d]: %w", i, err)
+		}
+	}
+	if s.WorkflowState == nil {
+		if len(s.EvidenceAcquisitions) > 0 {
+			return fmt.Errorf("%w: evidence acquisitions require workflow_state", ErrInvalidArgument)
+		}
+	} else {
 		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
 			return fmt.Errorf("workflow_state: %w", err)
 		}
@@ -259,6 +291,9 @@ func (s Snapshot) Validate() error {
 		}
 		if err := validateWorkflowTransitionIntegrity(s); err != nil {
 			return err
+		}
+		if err := validateEvidenceAcquisitionOrigin(s); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 		}
 	}
 	return nil
@@ -492,14 +527,107 @@ func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.Coordinato
 }
 
 func createOrAdoptReferenceSet(s Snapshot) []string {
+	initialTargets, initialEvidence := initialTargetAndEvidenceIDs(s)
 	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
+	want = append(want, initialTargets...)
+	want = append(want, initialEvidence...)
+	return uniqueSortedStrings(want)
+}
+
+func initialTargetAndEvidenceIDs(s Snapshot) (targets []string, evidence []string) {
+	addedTargets := make(map[string]struct{})
+	addedEvidence := make(map[string]struct{})
+	for _, acq := range s.EvidenceAcquisitions {
+		for _, id := range acq.AddedTargetIDs {
+			addedTargets[id] = struct{}{}
+		}
+		for _, id := range acq.AddedEvidenceIDs {
+			addedEvidence[id] = struct{}{}
+		}
+	}
 	for _, t := range s.Targets {
-		want = append(want, t.TargetID)
+		if _, ok := addedTargets[t.TargetID]; !ok {
+			targets = append(targets, t.TargetID)
+		}
 	}
 	for _, e := range s.EvidenceBundles {
-		want = append(want, e.EvidenceID)
+		if _, ok := addedEvidence[e.EvidenceID]; !ok {
+			evidence = append(evidence, e.EvidenceID)
+		}
 	}
-	return uniqueSortedStrings(want)
+	return targets, evidence
+}
+
+func validateEvidenceAcquisitionOrigin(s Snapshot) error {
+	addedTargets := make(map[string]string) // id -> acquisition_id
+	addedEvidence := make(map[string]string)
+	for _, acq := range s.EvidenceAcquisitions {
+		for _, id := range acq.TargetIDs {
+			if findTargetByID(s.Targets, id) == nil {
+				return fmt.Errorf("acquisition %q target_ids contains unknown %q", acq.AcquisitionID, id)
+			}
+		}
+		for _, id := range acq.InputEvidenceIDs {
+			if findEvidenceByID(s.EvidenceBundles, id) == nil {
+				return fmt.Errorf("acquisition %q input_evidence_ids contains unknown %q", acq.AcquisitionID, id)
+			}
+		}
+		for _, id := range acq.AddedTargetIDs {
+			if findTargetByID(s.Targets, id) == nil {
+				return fmt.Errorf("acquisition %q added_target_ids contains missing %q", acq.AcquisitionID, id)
+			}
+			if prev, ok := addedTargets[id]; ok {
+				return fmt.Errorf("target %q claimed by acquisitions %q and %q", id, prev, acq.AcquisitionID)
+			}
+			addedTargets[id] = acq.AcquisitionID
+		}
+		for _, id := range acq.AddedEvidenceIDs {
+			if findEvidenceByID(s.EvidenceBundles, id) == nil {
+				return fmt.Errorf("acquisition %q added_evidence_ids contains missing %q", acq.AcquisitionID, id)
+			}
+			if prev, ok := addedEvidence[id]; ok {
+				return fmt.Errorf("evidence %q claimed by acquisitions %q and %q", id, prev, acq.AcquisitionID)
+			}
+			addedEvidence[id] = acq.AcquisitionID
+		}
+	}
+
+	initialTargets, initialEvidence := initialTargetAndEvidenceIDs(s)
+	initialTargetSet := setOf(initialTargets...)
+	initialEvidenceSet := setOf(initialEvidence...)
+
+	for id := range addedTargets {
+		if _, ok := initialTargetSet[id]; ok {
+			return fmt.Errorf("target %q cannot be both initial and acquired", id)
+		}
+	}
+	for id := range addedEvidence {
+		if _, ok := initialEvidenceSet[id]; ok {
+			return fmt.Errorf("evidence %q cannot be both initial and acquired", id)
+		}
+	}
+
+	for _, t := range s.Targets {
+		_, initial := initialTargetSet[t.TargetID]
+		_, added := addedTargets[t.TargetID]
+		if initial == added {
+			return fmt.Errorf("target %q lacks exactly one origin", t.TargetID)
+		}
+	}
+	for _, e := range s.EvidenceBundles {
+		_, initial := initialEvidenceSet[e.EvidenceID]
+		_, added := addedEvidence[e.EvidenceID]
+		if initial == added {
+			return fmt.Errorf("evidence %q lacks exactly one origin", e.EvidenceID)
+		}
+	}
+
+	if len(s.EvidenceAcquisitions) == 0 {
+		return nil
+	}
+	// When acquisitions exist, revision-1 event must cover only initial IDs
+	// (already enforced by createOrAdoptReferenceSet exact match).
+	return nil
 }
 
 func analysisReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
@@ -603,6 +731,24 @@ func findPlanByID(values []domain.RepairPlan, want string) *domain.RepairPlan {
 	return nil
 }
 
+func findTargetByID(values []domain.Target, want string) *domain.Target {
+	for i := range values {
+		if values[i].TargetID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
+func findEvidenceByID(values []domain.EvidenceBundle, want string) *domain.EvidenceBundle {
+	for i := range values {
+		if values[i].EvidenceID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
 func setOf(ids ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
@@ -632,14 +778,15 @@ func artifactRefsEqual(a, b domain.ArtifactRef) bool {
 // SnapshotFromImporterResult converts a legacy importer Result into a Snapshot.
 func SnapshotFromImporterResult(result legacyreport.Result) Snapshot {
 	return Snapshot{
-		Case:                result.Case,
-		Targets:             append([]domain.Target(nil), result.Targets...),
-		EvidenceBundles:     append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
-		Findings:            []domain.Finding{},
-		RepairPlans:         []domain.RepairPlan{},
-		ExecutionEvents:     []domain.ExecutionEvent{},
-		VerificationReports: []domain.VerificationReport{},
-		CoordinatorEvents:   []domain.CoordinatorEvent{},
+		Case:                 result.Case,
+		Targets:              append([]domain.Target(nil), result.Targets...),
+		EvidenceBundles:      append([]domain.EvidenceBundle(nil), result.EvidenceBundles...),
+		Findings:             []domain.Finding{},
+		RepairPlans:          []domain.RepairPlan{},
+		ExecutionEvents:      []domain.ExecutionEvent{},
+		VerificationReports:  []domain.VerificationReport{},
+		CoordinatorEvents:    []domain.CoordinatorEvent{},
+		EvidenceAcquisitions: []domain.EvidenceAcquisitionRecord{},
 	}
 }
 
@@ -758,6 +905,19 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 			return nil, fmt.Errorf("marshal coordinator-event %s: %w", ev.EventID, err)
 		}
 		docs = append(docs, documentEntry("coordinator-events/"+ev.EventID+".json", raw))
+	}
+
+	acqs := append([]domain.EvidenceAcquisitionRecord(nil), snap.EvidenceAcquisitions...)
+	sort.Slice(acqs, func(i, j int) bool { return acqs[i].AcquisitionID < acqs[j].AcquisitionID })
+	for _, acq := range acqs {
+		if err := validateAcquisitionID(acq.AcquisitionID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(acq)
+		if err != nil {
+			return nil, fmt.Errorf("marshal evidence-acquisition %s: %w", acq.AcquisitionID, err)
+		}
+		docs = append(docs, documentEntry("evidence-acquisitions/"+acq.AcquisitionID+".json", raw))
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].RelativePath < docs[j].RelativePath })

@@ -57,11 +57,15 @@ Today’s implemented path is concentrated on **Evidence** and conservative
 **Finding** / read-only next steps, plus optional gateway-assisted findings that
 remain non-authoritative. Recovery domain contracts, a legacy diagnostic-report
 importer, and a local **Case Store** library (immutable snapshots + append-only
-commits) exist. A **Recovery Coordinator** library (Draft PR #17) orchestrates
-create/resume and early workflow transitions over the Case Store; it does not
-execute operations and is not yet wired into WinPE runtime or GUI. Mutation,
-backup, verification, and Boot Doctor are **not** shipped as platform modules
-yet.
+commits) exist. A **Recovery Coordinator** library (PR #17, on main) orchestrates
+create/resume and early workflow transitions over the Case Store. **Draft PR #18**
+adds an advisory Windows boot topology resolver, a typed read-only operation
+registry (Case snapshot evidence + Case Store integrity verify), and incremental
+evidence acquisition with provenance records — still no mutation, Boot Doctor,
+live reinspection, or LLM authority. `mutation_eligibility` on topology facts is
+diagnostic completeness only; it is **not** approval or safe-to-repair authority.
+Neither PR is wired into WinPE runtime or GUI yet. Mutation, backup,
+verification, and Boot Doctor are **not** shipped as platform modules yet.
 
 ## Component mapping (legacy-compatible)
 

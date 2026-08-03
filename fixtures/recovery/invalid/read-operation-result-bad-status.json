@@ -1,0 +1,15 @@
+{
+  "schema_name": "read-operation-result",
+  "schema_version": "1.0.0",
+  "request_id": "readreq-111111111111111111111111",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "operation_id": "boot.inspect_firmware_mode",
+  "operation_version": "1.0.0",
+  "target_id": "target-firmware-system",
+  "observed_at": "2026-07-27T12:10:00Z",
+  "status": "weird",
+  "observation_source": "case_snapshot",
+  "source_evidence_ids": ["evidence-bbbbbbbbbbbbbbbbbbbbbbbb"],
+  "facts": { "firmware_mode": "uefi" },
+  "limitations": []
+}

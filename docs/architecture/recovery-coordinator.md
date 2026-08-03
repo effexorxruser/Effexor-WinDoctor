@@ -13,11 +13,15 @@ records typed audit events.
 
 This package does **not**:
 
-- resolve Windows boot topology;
 - run Boot Doctor rules;
 - call the model gateway;
 - approve, back up, or execute repairs;
 - expose a CLI or GUI.
+
+Windows boot topology resolution and typed read-only operations are provided as
+**read-only acquisition APIs** (PR #18). See linked architecture docs below.
+They do not mutate a recovery target and do not advance workflow beyond
+`evidence_collected`.
 
 ## Public operations (PR #17)
 
@@ -30,6 +34,32 @@ This package does **not**:
 | `CommitPlan` | Persist **draft** RepairPlan → `plan_proposed` |
 | `FailCase` | Transition to `failed` |
 | `CancelCase` | Transition to `cancelled` |
+
+### Read-only acquisition (PR #18)
+
+| Method | Effect |
+|--------|--------|
+| `ExecuteReadOperation` | Run a catalogued read-only operation → append Evidence (+ optional Targets) and one `EvidenceAcquisitionRecord`; workflow unchanged |
+| `ResolveWindowsBootTopology` | Run advisory target resolver → append topology Evidence and acquisition record; workflow unchanged |
+
+Both methods:
+
+- require `WorkflowState.State == evidence_collected`;
+- verify Case Store integrity and `ExpectedCommitID`;
+- append documents and commit once via Case Store;
+- do **not** bump `WorkflowRevision`, append CoordinatorEvents, or change
+  `CaseManifest.CurrentState`;
+- are idempotent on identical `request_id` + canonical request payload;
+- reject divergent retries with the same `request_id`.
+
+Acquisition provenance is recorded in `evidence-acquisitions/`; post-create
+Target/Evidence IDs are not retroactively added to revision-1 audit refs.
+
+Related architecture:
+
+- [`evidence-acquisition.md`](evidence-acquisition.md)
+- [`windows-target-resolver.md`](windows-target-resolver.md)
+- [`read-only-operation-registry.md`](read-only-operation-registry.md)
 
 `CreateCase` requires an absent Case head (`ParentExpectationAbsent`). A second
 create for the same report hash returns `ErrCaseAlreadyExists` and does not
