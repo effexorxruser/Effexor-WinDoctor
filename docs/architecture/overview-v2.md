@@ -63,13 +63,15 @@ adds an advisory Windows boot topology resolver, a typed read-only operation
 registry (Case snapshot evidence + Case Store integrity verify), and incremental
 evidence acquisition with provenance records. **PR #19** adds deterministic
 Boot Doctor analysis (`internal/recovery/bootdoctor`) that turns topology + Case
-Evidence into typed Findings. **Draft PR #20** adds Recovery Agent Runtime v2
-(`internal/recovery/agentruntime`) and advisory `agent-consultation` documents —
-still no mutation, live reinspection, planner, backup, or model authority over
-approval. `mutation_eligibility` on topology facts is diagnostic completeness
-only; it is **not** approval or safe-to-repair authority. Findings and
-consultations are not approvals either. Runtime is not wired into WinPE GUI yet.
-Mutation, backup, and verification remain **not** shipped.
+Evidence into typed Findings. **PR #20** adds Recovery Agent Runtime v2
+(`internal/recovery/agentruntime`) and advisory `agent-consultation` documents.
+**Draft PR #21** adds a deterministic Repair Planner, independent Policy Engine,
+and explicit technician `repair-approval` binding through
+`analyzed → plan_proposed → awaiting_approval → approved`. Approval is not
+execution. `mutation_eligibility` on topology facts is diagnostic completeness
+only; it is **not** safe-to-repair authority. Findings and consultations are not
+approvals either. Runtime is not wired into WinPE GUI yet. Backup, mutation, and
+verification remain **not** shipped.
 
 ## Component mapping (legacy-compatible)
 
@@ -95,9 +97,11 @@ These names remain valid. Reframing does not deprecate them for deletion.
 
 ## First vertical
 
-**Boot Doctor** (PR #19) and **Recovery Agent Runtime v2** (PR #20) are the first
-product verticals on Core contracts. Planner/policy/approval and repair execution
-remain later PRs. This document does not claim release readiness.
+**Boot Doctor** (PR #19), **Recovery Agent Runtime v2** (PR #20), and
+**Planner/Policy/Approval** (PR #21 Draft) are the first product verticals on
+Core contracts. Backup (PR #22), typed UEFI repair execution (PR #23), and later
+integration/qualification PRs remain. This document does not claim release
+readiness.
 
 ## Desktop shell
 
