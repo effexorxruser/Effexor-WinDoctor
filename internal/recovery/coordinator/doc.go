@@ -9,6 +9,8 @@
 // evidence_collected and analyzed. PR #19 adds CommitBootDoctorAnalysis.
 // PR #20 adds CommitAgentConsultation for advisory enrichment that does not
 // advance workflow past analyzed and does not emit CoordinatorEvents.
+// PR #21 adds ProposeRepairPlan, EvaluateRepairPlanPolicy, and ApproveRepairPlan
+// for analyzed → plan_proposed → awaiting_approval → approved without execution.
 //
 // Idempotency model (PR #17):
 // Case Store Commit is idempotent for an identical canonical Snapshot

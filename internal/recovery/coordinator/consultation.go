@@ -338,6 +338,20 @@ func buildCrossRefs(s casestore.Snapshot) domain.CrossRefs {
 	for id := range eventIDs {
 		docIDs[id] = struct{}{}
 	}
+	policyIDs := make(map[string]struct{}, len(s.PolicyEvaluations))
+	for _, pol := range s.PolicyEvaluations {
+		policyIDs[pol.EvaluationID] = struct{}{}
+	}
+	approvalIDs := make(map[string]struct{}, len(s.RepairApprovals))
+	for _, appr := range s.RepairApprovals {
+		approvalIDs[appr.ApprovalID] = struct{}{}
+	}
+	for id := range policyIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range approvalIDs {
+		docIDs[id] = struct{}{}
+	}
 	if s.WorkflowState != nil {
 		docIDs[domain.DocumentIDCaseWorkflowState] = struct{}{}
 	}
@@ -350,6 +364,8 @@ func buildCrossRefs(s casestore.Snapshot) domain.CrossRefs {
 		ExecutionIDs:        executionIDs,
 		VerificationIDs:     verificationIDs,
 		CoordinatorEventIDs: eventIDs,
+		PolicyEvaluationIDs: policyIDs,
+		RepairApprovalIDs:   approvalIDs,
 		DocumentIDs:         docIDs,
 	}
 }

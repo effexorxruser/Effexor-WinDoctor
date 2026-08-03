@@ -55,6 +55,18 @@ func planRefs(caseID string, plan domain.RepairPlan) []string {
 	return uniqueRefs(refs...)
 }
 
+func policyRefs(caseID string, plan domain.RepairPlan, evaluation domain.PolicyEvaluation) []string {
+	refs := planRefs(caseID, plan)
+	refs = append(refs, evaluation.EvaluationID)
+	return uniqueRefs(refs...)
+}
+
+func approvalRefs(caseID string, plan domain.RepairPlan, evaluation domain.PolicyEvaluation, approval domain.RepairApproval) []string {
+	refs := policyRefs(caseID, plan, evaluation)
+	refs = append(refs, approval.ApprovalID)
+	return uniqueRefs(refs...)
+}
+
 func terminalRefs(snap casestore.Snapshot) []string {
 	refs := []string{snap.Case.CaseID, domain.DocumentIDCaseWorkflowState}
 	if snap.WorkflowState != nil && snap.WorkflowState.ActivePlanID != "" {

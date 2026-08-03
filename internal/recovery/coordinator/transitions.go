@@ -18,11 +18,17 @@ func validateTransition(from, to domain.WorkflowStateName, actor domain.ActorTyp
 		eventType = domain.EventAnalysisCommitted
 	case from == domain.WorkflowAnalyzed && to == domain.WorkflowPlanProposed:
 		eventType = domain.EventPlanCommitted
-	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
-		to == domain.WorkflowFailed:
+	case from == domain.WorkflowPlanProposed && to == domain.WorkflowAwaitingApproval:
+		eventType = domain.EventPolicyEvaluated
+	case from == domain.WorkflowAwaitingApproval && to == domain.WorkflowApproved:
+		eventType = domain.EventApprovalCommitted
+	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed ||
+		from == domain.WorkflowPlanProposed || from == domain.WorkflowAwaitingApproval ||
+		from == domain.WorkflowApproved) && to == domain.WorkflowFailed:
 		eventType = domain.EventCaseFailed
-	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed || from == domain.WorkflowPlanProposed) &&
-		to == domain.WorkflowCancelled:
+	case (from == domain.WorkflowEvidenceCollected || from == domain.WorkflowAnalyzed ||
+		from == domain.WorkflowPlanProposed || from == domain.WorkflowAwaitingApproval ||
+		from == domain.WorkflowApproved) && to == domain.WorkflowCancelled:
 		eventType = domain.EventCaseCancelled
 	default:
 		return &TransitionError{

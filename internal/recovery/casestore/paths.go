@@ -23,6 +23,8 @@ var (
 	reCoordinatorEventID = regexp.MustCompile(`^cevt-[a-f0-9]{24}$`)
 	reAcquisitionID      = regexp.MustCompile(`^acq-[a-f0-9]{24}$`)
 	reConsultationID     = regexp.MustCompile(`^consult-[a-f0-9]{24}$`)
+	rePolicyEvaluationID = regexp.MustCompile(`^pol-[a-f0-9]{24}$`)
+	reRepairApprovalID   = regexp.MustCompile(`^appr-[a-f0-9]{24}$`)
 )
 
 func (s *Store) casesRoot() string {
@@ -149,6 +151,20 @@ func validateAcquisitionID(id string) error {
 func validateConsultationID(id string) error {
 	if !reConsultationID.MatchString(id) {
 		return fmt.Errorf("%w: invalid consultation_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validatePolicyEvaluationID(id string) error {
+	if !rePolicyEvaluationID.MatchString(id) {
+		return fmt.Errorf("%w: invalid evaluation_id %q", ErrInvalidArgument, id)
+	}
+	return nil
+}
+
+func validateRepairApprovalID(id string) error {
+	if !reRepairApprovalID.MatchString(id) {
+		return fmt.Errorf("%w: invalid approval_id %q", ErrInvalidArgument, id)
 	}
 	return nil
 }
