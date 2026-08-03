@@ -301,6 +301,34 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 				return Snapshot{}, fmt.Errorf("%w: agent-consultation path %q does not match consultation_id %q", ErrIntegrity, d.RelativePath, cons.ConsultationID)
 			}
 			snap.AgentConsultations = append(snap.AgentConsultations, cons)
+		case strings.HasPrefix(d.RelativePath, "policy-evaluations/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var pol domain.PolicyEvaluation
+			if err := domain.DecodeAndValidateJSON(raw, &pol); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "policy-evaluations/" + pol.EvaluationID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: policy-evaluation path %q does not match evaluation_id %q", ErrIntegrity, d.RelativePath, pol.EvaluationID)
+			}
+			snap.PolicyEvaluations = append(snap.PolicyEvaluations, pol)
+		case strings.HasPrefix(d.RelativePath, "repair-approvals/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var appr domain.RepairApproval
+			if err := domain.DecodeAndValidateJSON(raw, &appr); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "repair-approvals/" + appr.ApprovalID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: repair-approval path %q does not match approval_id %q", ErrIntegrity, d.RelativePath, appr.ApprovalID)
+			}
+			snap.RepairApprovals = append(snap.RepairApprovals, appr)
 		default:
 			return Snapshot{}, fmt.Errorf("%w: unsupported document path %q", ErrIntegrity, d.RelativePath)
 		}
@@ -325,6 +353,12 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	})
 	sort.Slice(snap.AgentConsultations, func(i, j int) bool {
 		return snap.AgentConsultations[i].ConsultationID < snap.AgentConsultations[j].ConsultationID
+	})
+	sort.Slice(snap.PolicyEvaluations, func(i, j int) bool {
+		return snap.PolicyEvaluations[i].EvaluationID < snap.PolicyEvaluations[j].EvaluationID
+	})
+	sort.Slice(snap.RepairApprovals, func(i, j int) bool {
+		return snap.RepairApprovals[i].ApprovalID < snap.RepairApprovals[j].ApprovalID
 	})
 	if err := snap.Validate(); err != nil {
 		return Snapshot{}, err
@@ -547,6 +581,8 @@ func validateManifestDocumentPath(rel string) error {
 		{"coordinator-events/", reCoordinatorEventID, "coordinator-event"},
 		{"evidence-acquisitions/", reAcquisitionID, "evidence-acquisition"},
 		{"agent-consultations/", reConsultationID, "agent-consultation"},
+		{"policy-evaluations/", rePolicyEvaluationID, "policy-evaluation"},
+		{"repair-approvals/", reRepairApprovalID, "repair-approval"},
 	}
 	for _, rule := range rules {
 		if strings.HasPrefix(rel, rule.prefix) && strings.HasSuffix(rel, ".json") {

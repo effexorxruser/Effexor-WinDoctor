@@ -16,7 +16,7 @@ func ValidatePR17WorkflowStateDocumentSemantics(workflow CaseWorkflowState) erro
 		if workflow.Failure != nil {
 			return fmt.Errorf("state %q must not set failure", workflow.State)
 		}
-	case WorkflowPlanProposed:
+	case WorkflowPlanProposed, WorkflowAwaitingApproval, WorkflowApproved:
 		if workflow.ActivePlanID == "" {
 			return fmt.Errorf("state %q requires active_plan_id", workflow.State)
 		}
@@ -59,6 +59,20 @@ func ValidatePR17WorkflowStateSemantics(workflow CaseWorkflowState, caseManifest
 	case WorkflowPlanProposed:
 		if lastEvent.EventType != EventPlanCommitted {
 			return fmt.Errorf("state %q requires last event %q", workflow.State, EventPlanCommitted)
+		}
+		if !containsString(lastEvent.ReferencedDocumentIDs, workflow.ActivePlanID) {
+			return fmt.Errorf("state %q requires last event refs to contain active_plan_id", workflow.State)
+		}
+	case WorkflowAwaitingApproval:
+		if lastEvent.EventType != EventPolicyEvaluated {
+			return fmt.Errorf("state %q requires last event %q", workflow.State, EventPolicyEvaluated)
+		}
+		if !containsString(lastEvent.ReferencedDocumentIDs, workflow.ActivePlanID) {
+			return fmt.Errorf("state %q requires last event refs to contain active_plan_id", workflow.State)
+		}
+	case WorkflowApproved:
+		if lastEvent.EventType != EventApprovalCommitted {
+			return fmt.Errorf("state %q requires last event %q", workflow.State, EventApprovalCommitted)
 		}
 		if !containsString(lastEvent.ReferencedDocumentIDs, workflow.ActivePlanID) {
 			return fmt.Errorf("state %q requires last event refs to contain active_plan_id", workflow.State)

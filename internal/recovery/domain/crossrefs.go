@@ -13,6 +13,8 @@ type CrossRefs struct {
 	VerificationIDs     map[string]struct{}
 	ArtifactIDs         map[string]struct{}
 	CoordinatorEventIDs map[string]struct{}
+	PolicyEvaluationIDs map[string]struct{}
+	RepairApprovalIDs   map[string]struct{}
 	// DocumentIDs is the full set of referencable document identifiers,
 	// including singleton typed IDs such as DocumentIDCaseWorkflowState.
 	DocumentIDs map[string]struct{}

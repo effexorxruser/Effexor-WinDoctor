@@ -1,0 +1,22 @@
+{
+  "schema_name": "repair-approval",
+  "schema_version": "1.0.0",
+  "approval_id": "appr-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "case_id": "case-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "request_id": "apprreq-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_id": "plan-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "evaluation_id": "pol-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "policy_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "source_commit_id": "commit-111111111111111111111111",
+  "topology_id": "topology-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "technician_ref": "tech.local",
+  "approved_at": "2026-08-03T12:05:00Z",
+  "status": "approved",
+  "acknowledged_risks": ["bcd_mutation_requires_backup"],
+  "scope_summary": "Approve typed UEFI BCD store repair plan only; no execution.",
+  "limitations": [
+    "Approval binds a technician to an immutable plan digest.",
+    "Approval does not authorize immediate execution without backup and executor gates."
+  ]
+}

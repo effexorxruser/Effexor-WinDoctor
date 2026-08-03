@@ -92,6 +92,14 @@ func TestValidFixturesRoundTrip(t *testing.T) {
 			var v domain.VerificationReport
 			return domain.DecodeAndValidateJSON(raw, &v)
 		}},
+		{"policy-evaluation.json", func(raw []byte) error {
+			var v domain.PolicyEvaluation
+			return domain.DecodeAndValidateJSON(raw, &v)
+		}},
+		{"repair-approval.json", func(raw []byte) error {
+			var v domain.RepairApproval
+			return domain.DecodeAndValidateJSON(raw, &v)
+		}},
 	}
 	for _, test := range tests {
 		test := test
@@ -274,6 +282,8 @@ func TestIsStateChangingCoordinatorEventTypeConcurrent(t *testing.T) {
 		domain.EventCaseCreated,
 		domain.EventAnalysisCommitted,
 		domain.EventPlanCommitted,
+		domain.EventPolicyEvaluated,
+		domain.EventApprovalCommitted,
 		domain.EventCaseFailed,
 		domain.EventCaseCancelled,
 		domain.EventLegacyCaseAdopted,

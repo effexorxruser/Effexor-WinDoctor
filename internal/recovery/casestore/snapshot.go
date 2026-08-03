@@ -39,6 +39,12 @@ func (s *Snapshot) Normalize() {
 	if s.AgentConsultations == nil {
 		s.AgentConsultations = []domain.AgentConsultation{}
 	}
+	if s.PolicyEvaluations == nil {
+		s.PolicyEvaluations = []domain.PolicyEvaluation{}
+	}
+	if s.RepairApprovals == nil {
+		s.RepairApprovals = []domain.RepairApproval{}
+	}
 }
 
 // Validate checks Snapshot domain invariants before commit.
@@ -67,7 +73,8 @@ func (s Snapshot) Validate() error {
 	if s.WorkflowState == nil {
 		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 || len(s.ExecutionEvents) > 0 ||
 			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 ||
-			len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 {
+			len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 ||
+			len(s.PolicyEvaluations) > 0 || len(s.RepairApprovals) > 0 {
 			return fmt.Errorf("%w: lifecycle documents require workflow_state", ErrInvalidArgument)
 		}
 	}
@@ -197,6 +204,38 @@ func (s Snapshot) Validate() error {
 		}
 	}
 
+	policyIDs := make(map[string]struct{}, len(s.PolicyEvaluations))
+	policyRequestIDs := make(map[string]struct{}, len(s.PolicyEvaluations))
+	for i, pol := range s.PolicyEvaluations {
+		if _, ok := policyIDs[pol.EvaluationID]; ok {
+			return fmt.Errorf("%w: duplicate evaluation_id %q", ErrInvalidArgument, pol.EvaluationID)
+		}
+		policyIDs[pol.EvaluationID] = struct{}{}
+		if _, ok := policyRequestIDs[pol.RequestID]; ok {
+			return fmt.Errorf("%w: duplicate policy request_id %q", ErrInvalidArgument, pol.RequestID)
+		}
+		policyRequestIDs[pol.RequestID] = struct{}{}
+		if pol.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: policy_evaluations[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+
+	approvalIDs := make(map[string]struct{}, len(s.RepairApprovals))
+	approvalRequestIDs := make(map[string]struct{}, len(s.RepairApprovals))
+	for i, appr := range s.RepairApprovals {
+		if _, ok := approvalIDs[appr.ApprovalID]; ok {
+			return fmt.Errorf("%w: duplicate approval_id %q", ErrInvalidArgument, appr.ApprovalID)
+		}
+		approvalIDs[appr.ApprovalID] = struct{}{}
+		if _, ok := approvalRequestIDs[appr.RequestID]; ok {
+			return fmt.Errorf("%w: duplicate approval request_id %q", ErrInvalidArgument, appr.RequestID)
+		}
+		approvalRequestIDs[appr.RequestID] = struct{}{}
+		if appr.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: repair_approvals[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+
 	docIDs := make(map[string]struct{})
 	docIDs[s.Case.CaseID] = struct{}{}
 	for id := range targetIDs {
@@ -226,6 +265,12 @@ func (s Snapshot) Validate() error {
 	for id := range consultationIDs {
 		docIDs[id] = struct{}{}
 	}
+	for id := range policyIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range approvalIDs {
+		docIDs[id] = struct{}{}
+	}
 	if s.WorkflowState != nil {
 		docIDs[domain.DocumentIDCaseWorkflowState] = struct{}{}
 	}
@@ -240,6 +285,8 @@ func (s Snapshot) Validate() error {
 		VerificationIDs:     verificationIDs,
 		ArtifactIDs:         artifactIDSet(artifactByID),
 		CoordinatorEventIDs: eventIDs,
+		PolicyEvaluationIDs: policyIDs,
+		RepairApprovalIDs:   approvalIDs,
 		DocumentIDs:         docIDs,
 	}
 
@@ -301,9 +348,20 @@ func (s Snapshot) Validate() error {
 			return fmt.Errorf("agent_consultations[%d]: %w", i, err)
 		}
 	}
+	for i, pol := range s.PolicyEvaluations {
+		if err := pol.ValidatePolicyEvaluationRefs(refs); err != nil {
+			return fmt.Errorf("policy_evaluations[%d]: %w", i, err)
+		}
+	}
+	for i, appr := range s.RepairApprovals {
+		if err := appr.ValidateRepairApprovalRefs(refs); err != nil {
+			return fmt.Errorf("repair_approvals[%d]: %w", i, err)
+		}
+	}
 	if s.WorkflowState == nil {
-		if len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 {
-			return fmt.Errorf("%w: evidence acquisitions and consultations require workflow_state", ErrInvalidArgument)
+		if len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 ||
+			len(s.PolicyEvaluations) > 0 || len(s.RepairApprovals) > 0 {
+			return fmt.Errorf("%w: evidence acquisitions, consultations, policy, and approvals require workflow_state", ErrInvalidArgument)
 		}
 	} else {
 		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
@@ -446,6 +504,8 @@ func validateLifecycleProvenance(s Snapshot) error {
 
 	auditedFindings := make(map[string]struct{})
 	auditedPlans := make(map[string]struct{})
+	auditedAllowedPolicy := make(map[string]struct{})
+	auditedApprovals := make(map[string]struct{})
 	for _, ev := range s.CoordinatorEvents {
 		switch ev.EventType {
 		case domain.EventAnalysisCommitted:
@@ -460,6 +520,18 @@ func validateLifecycleProvenance(s Snapshot) error {
 					auditedPlans[id] = struct{}{}
 				}
 			}
+		case domain.EventPolicyEvaluated:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findPolicyEvaluationByID(s.PolicyEvaluations, id) != nil {
+					auditedAllowedPolicy[id] = struct{}{}
+				}
+			}
+		case domain.EventApprovalCommitted:
+			for _, id := range ev.ReferencedDocumentIDs {
+				if findRepairApprovalByID(s.RepairApprovals, id) != nil {
+					auditedApprovals[id] = struct{}{}
+				}
+			}
 		}
 	}
 	for _, f := range s.Findings {
@@ -470,6 +542,18 @@ func validateLifecycleProvenance(s Snapshot) error {
 	for _, p := range s.RepairPlans {
 		if _, ok := auditedPlans[p.PlanID]; !ok {
 			return fmt.Errorf("plan %q lacks plan_committed provenance", p.PlanID)
+		}
+	}
+	for _, pol := range s.PolicyEvaluations {
+		if pol.Decision == "allowed" {
+			if _, ok := auditedAllowedPolicy[pol.EvaluationID]; !ok {
+				return fmt.Errorf("policy evaluation %q lacks policy_evaluated provenance", pol.EvaluationID)
+			}
+		}
+	}
+	for _, appr := range s.RepairApprovals {
+		if _, ok := auditedApprovals[appr.ApprovalID]; !ok {
+			return fmt.Errorf("repair approval %q lacks approval_committed provenance", appr.ApprovalID)
 		}
 	}
 
@@ -485,7 +569,7 @@ func validateLifecycleProvenance(s Snapshot) error {
 		if len(s.RepairPlans) > 0 {
 			return fmt.Errorf("state %q must not contain repair plans", s.WorkflowState.State)
 		}
-	case domain.WorkflowPlanProposed:
+	case domain.WorkflowPlanProposed, domain.WorkflowAwaitingApproval, domain.WorkflowApproved:
 		if len(s.Findings) == 0 {
 			return fmt.Errorf("state %q requires audited findings", s.WorkflowState.State)
 		}
@@ -497,6 +581,24 @@ func validateLifecycleProvenance(s Snapshot) error {
 		}
 		if findPlanByID(s.RepairPlans, s.WorkflowState.ActivePlanID) == nil {
 			return fmt.Errorf("active_plan_id %q missing from repair plans", s.WorkflowState.ActivePlanID)
+		}
+		if s.WorkflowState.State == domain.WorkflowAwaitingApproval && len(s.PolicyEvaluations) == 0 {
+			return fmt.Errorf("state %q requires at least one policy evaluation", s.WorkflowState.State)
+		}
+		if s.WorkflowState.State == domain.WorkflowApproved {
+			if len(s.RepairApprovals) == 0 {
+				return fmt.Errorf("state %q requires at least one repair approval", s.WorkflowState.State)
+			}
+			hasAllowed := false
+			for _, pol := range s.PolicyEvaluations {
+				if pol.Decision == "allowed" {
+					hasAllowed = true
+					break
+				}
+			}
+			if !hasAllowed {
+				return fmt.Errorf("state %q requires an allowed policy evaluation", s.WorkflowState.State)
+			}
 		}
 	case domain.WorkflowFailed, domain.WorkflowCancelled:
 		// Existing findings/plans already require provenance above.
@@ -540,6 +642,22 @@ func validateCoordinatorEventReferenceSemantics(s Snapshot, ev domain.Coordinato
 		}
 		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
 			return fmt.Errorf("plan refs: %w", err)
+		}
+	case domain.EventPolicyEvaluated:
+		want, err := policyReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("policy refs: %w", err)
+		}
+	case domain.EventApprovalCommitted:
+		want, err := approvalReferenceClosure(s, ev)
+		if err != nil {
+			return err
+		}
+		if err := requireExactRefSet(ev.ReferencedDocumentIDs, want); err != nil {
+			return fmt.Errorf("approval refs: %w", err)
 		}
 	case domain.EventCaseFailed, domain.EventCaseCancelled:
 		want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState}
@@ -700,6 +818,78 @@ func planReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, err
 	return uniqueSortedStrings(want), nil
 }
 
+func policyReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	if s.WorkflowState == nil || s.WorkflowState.ActivePlanID == "" {
+		return nil, fmt.Errorf("policy_evaluated requires active_plan_id")
+	}
+	plan := findPlanByID(s.RepairPlans, s.WorkflowState.ActivePlanID)
+	if plan == nil {
+		return nil, fmt.Errorf("policy_evaluated active plan missing")
+	}
+	var evals []domain.PolicyEvaluation
+	for _, id := range ev.ReferencedDocumentIDs {
+		if pol := findPolicyEvaluationByID(s.PolicyEvaluations, id); pol != nil {
+			evals = append(evals, *pol)
+		}
+	}
+	if len(evals) != 1 {
+		return nil, fmt.Errorf("policy_evaluated requires exactly one evaluation ref")
+	}
+	eval := evals[0]
+	if eval.Decision != "allowed" {
+		return nil, fmt.Errorf("policy_evaluated requires allowed decision")
+	}
+	if eval.PlanID != plan.PlanID {
+		return nil, fmt.Errorf("policy_evaluated plan_id mismatch")
+	}
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState, plan.PlanID, eval.EvaluationID}
+	want = append(want, plan.FindingRefs...)
+	for _, step := range plan.Steps {
+		want = append(want, step.TargetID)
+	}
+	return uniqueSortedStrings(want), nil
+}
+
+func approvalReferenceClosure(s Snapshot, ev domain.CoordinatorEvent) ([]string, error) {
+	if s.WorkflowState == nil || s.WorkflowState.ActivePlanID == "" {
+		return nil, fmt.Errorf("approval_committed requires active_plan_id")
+	}
+	plan := findPlanByID(s.RepairPlans, s.WorkflowState.ActivePlanID)
+	if plan == nil {
+		return nil, fmt.Errorf("approval_committed active plan missing")
+	}
+	var evals []domain.PolicyEvaluation
+	var approvals []domain.RepairApproval
+	for _, id := range ev.ReferencedDocumentIDs {
+		if pol := findPolicyEvaluationByID(s.PolicyEvaluations, id); pol != nil {
+			evals = append(evals, *pol)
+		}
+		if appr := findRepairApprovalByID(s.RepairApprovals, id); appr != nil {
+			approvals = append(approvals, *appr)
+		}
+	}
+	if len(approvals) != 1 {
+		return nil, fmt.Errorf("approval_committed requires exactly one approval ref")
+	}
+	if len(evals) != 1 {
+		return nil, fmt.Errorf("approval_committed requires exactly one evaluation ref")
+	}
+	approval := approvals[0]
+	eval := evals[0]
+	if eval.Decision != "allowed" {
+		return nil, fmt.Errorf("approval_committed requires allowed policy evaluation")
+	}
+	if approval.PlanID != plan.PlanID || eval.PlanID != plan.PlanID {
+		return nil, fmt.Errorf("approval_committed plan_id mismatch")
+	}
+	want := []string{s.Case.CaseID, domain.DocumentIDCaseWorkflowState, plan.PlanID, eval.EvaluationID, approval.ApprovalID}
+	want = append(want, plan.FindingRefs...)
+	for _, step := range plan.Steps {
+		want = append(want, step.TargetID)
+	}
+	return uniqueSortedStrings(want), nil
+}
+
 func requireExactRefSet(got []string, want []string) error {
 	gotSet := uniqueSortedStrings(got)
 	wantSet := uniqueSortedStrings(want)
@@ -776,6 +966,24 @@ func findEvidenceByID(values []domain.EvidenceBundle, want string) *domain.Evide
 	return nil
 }
 
+func findPolicyEvaluationByID(values []domain.PolicyEvaluation, want string) *domain.PolicyEvaluation {
+	for i := range values {
+		if values[i].EvaluationID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
+func findRepairApprovalByID(values []domain.RepairApproval, want string) *domain.RepairApproval {
+	for i := range values {
+		if values[i].ApprovalID == want {
+			return &values[i]
+		}
+	}
+	return nil
+}
+
 func setOf(ids ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
@@ -815,6 +1023,8 @@ func SnapshotFromImporterResult(result legacyreport.Result) Snapshot {
 		CoordinatorEvents:    []domain.CoordinatorEvent{},
 		EvidenceAcquisitions: []domain.EvidenceAcquisitionRecord{},
 		AgentConsultations:   []domain.AgentConsultation{},
+		PolicyEvaluations:    []domain.PolicyEvaluation{},
+		RepairApprovals:      []domain.RepairApproval{},
 	}
 }
 
@@ -961,6 +1171,32 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 			return nil, fmt.Errorf("marshal agent-consultation %s: %w", cons.ConsultationID, err)
 		}
 		docs = append(docs, documentEntry("agent-consultations/"+cons.ConsultationID+".json", raw))
+	}
+
+	policies := append([]domain.PolicyEvaluation(nil), snap.PolicyEvaluations...)
+	sort.Slice(policies, func(i, j int) bool { return policies[i].EvaluationID < policies[j].EvaluationID })
+	for _, pol := range policies {
+		if err := validatePolicyEvaluationID(pol.EvaluationID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(pol)
+		if err != nil {
+			return nil, fmt.Errorf("marshal policy-evaluation %s: %w", pol.EvaluationID, err)
+		}
+		docs = append(docs, documentEntry("policy-evaluations/"+pol.EvaluationID+".json", raw))
+	}
+
+	approvals := append([]domain.RepairApproval(nil), snap.RepairApprovals...)
+	sort.Slice(approvals, func(i, j int) bool { return approvals[i].ApprovalID < approvals[j].ApprovalID })
+	for _, appr := range approvals {
+		if err := validateRepairApprovalID(appr.ApprovalID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(appr)
+		if err != nil {
+			return nil, fmt.Errorf("marshal repair-approval %s: %w", appr.ApprovalID, err)
+		}
+		docs = append(docs, documentEntry("repair-approvals/"+appr.ApprovalID+".json", raw))
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].RelativePath < docs[j].RelativePath })

@@ -72,6 +72,8 @@ func TestSchemaAcceptsValidFixtures(t *testing.T) {
 		"windows-boot-topology.json":       domain.SchemaWindowsBootTopology,
 		"read-operation-request.json":      domain.SchemaReadOperationRequest,
 		"read-operation-result.json":       domain.SchemaReadOperationResult,
+		"policy-evaluation.json":           domain.SchemaPolicyEvaluation,
+		"repair-approval.json":             domain.SchemaRepairApproval,
 	}
 	for file, schemaName := range mapping {
 		file, schemaName := file, schemaName
@@ -204,6 +206,12 @@ func goValidateFixture(schemaName, file string, raw []byte) error {
 	case domain.SchemaReadOperationResult:
 		var v domain.ReadOperationResult
 		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaPolicyEvaluation:
+		var v domain.PolicyEvaluation
+		return domain.DecodeAndValidateJSON(raw, &v)
+	case domain.SchemaRepairApproval:
+		var v domain.RepairApproval
+		return domain.DecodeAndValidateJSON(raw, &v)
 	default:
 		return nil
 	}
@@ -231,6 +239,8 @@ func TestSchemaGoParity(t *testing.T) {
 		"windows-boot-topology.json":       domain.SchemaWindowsBootTopology,
 		"read-operation-request.json":      domain.SchemaReadOperationRequest,
 		"read-operation-result.json":       domain.SchemaReadOperationResult,
+		"policy-evaluation.json":           domain.SchemaPolicyEvaluation,
+		"repair-approval.json":             domain.SchemaRepairApproval,
 	}
 	for file, schemaName := range validMapping {
 		file, schemaName := file, schemaName

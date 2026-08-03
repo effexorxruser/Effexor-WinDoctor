@@ -24,4 +24,6 @@ const (
 	SchemaReadOperationRequest      = "read-operation-request"
 	SchemaReadOperationResult       = "read-operation-result"
 	SchemaAgentConsultation         = "agent-consultation"
+	SchemaPolicyEvaluation          = "policy-evaluation"
+	SchemaRepairApproval            = "repair-approval"
 )

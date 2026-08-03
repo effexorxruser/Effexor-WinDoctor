@@ -24,6 +24,10 @@
     "commitId": { "type": "string", "pattern": "^commit-[a-f0-9]{24}$" },
     "consultationId": { "type": "string", "pattern": "^consult-[a-f0-9]{24}$" },
     "consultationRequestId": { "type": "string", "pattern": "^creq-[a-f0-9]{24}$" },
+    "policyEvaluationId": { "type": "string", "pattern": "^pol-[a-f0-9]{24}$" },
+    "policyRequestId": { "type": "string", "pattern": "^polreq-[a-f0-9]{24}$" },
+    "repairApprovalId": { "type": "string", "pattern": "^appr-[a-f0-9]{24}$" },
+    "approvalRequestId": { "type": "string", "pattern": "^apprreq-[a-f0-9]{24}$" },
     "relativePath": {
       "type": "string",
       "minLength": 1,

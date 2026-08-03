@@ -4,7 +4,7 @@ import "fmt"
 
 func isPR17AllowedActor(actor ActorType) bool {
 	switch actor {
-	case ActorSystem, ActorTechnician, ActorDeterministicAnalyzer:
+	case ActorSystem, ActorTechnician, ActorDeterministicAnalyzer, ActorPolicy:
 		return true
 	default:
 		return false
@@ -16,7 +16,8 @@ func isPR17AllowedActor(actor ActorType) bool {
 func IsStateChangingCoordinatorEventType(eventType CoordinatorEventType) bool {
 	switch eventType {
 	case EventCaseCreated, EventLegacyCaseAdopted, EventAnalysisCommitted,
-		EventPlanCommitted, EventCaseFailed, EventCaseCancelled:
+		EventPlanCommitted, EventPolicyEvaluated, EventApprovalCommitted,
+		EventCaseFailed, EventCaseCancelled:
 		return true
 	}
 	return false
@@ -30,6 +31,10 @@ func allowedActorForPR17Event(eventType CoordinatorEventType, actor ActorType) b
 		return actor == ActorSystem || actor == ActorDeterministicAnalyzer
 	case EventPlanCommitted:
 		return actor == ActorSystem || actor == ActorTechnician || actor == ActorDeterministicAnalyzer
+	case EventPolicyEvaluated:
+		return actor == ActorPolicy || actor == ActorSystem
+	case EventApprovalCommitted:
+		return actor == ActorTechnician
 	case EventCaseFailed, EventCaseCancelled:
 		return isPR17AllowedActor(actor)
 	default:
@@ -48,12 +53,18 @@ func validPR17TransitionForEvent(eventType CoordinatorEventType, prev, next Work
 			(prev == WorkflowAnalyzed && next == WorkflowAnalyzed)
 	case EventPlanCommitted:
 		return prev == WorkflowAnalyzed && next == WorkflowPlanProposed
+	case EventPolicyEvaluated:
+		return prev == WorkflowPlanProposed && next == WorkflowAwaitingApproval
+	case EventApprovalCommitted:
+		return prev == WorkflowAwaitingApproval && next == WorkflowApproved
 	case EventCaseFailed:
-		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
-			next == WorkflowFailed
+		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed ||
+			prev == WorkflowPlanProposed || prev == WorkflowAwaitingApproval ||
+			prev == WorkflowApproved) && next == WorkflowFailed
 	case EventCaseCancelled:
-		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed || prev == WorkflowPlanProposed) &&
-			next == WorkflowCancelled
+		return (prev == WorkflowEvidenceCollected || prev == WorkflowAnalyzed ||
+			prev == WorkflowPlanProposed || prev == WorkflowAwaitingApproval ||
+			prev == WorkflowApproved) && next == WorkflowCancelled
 	default:
 		return false
 	}

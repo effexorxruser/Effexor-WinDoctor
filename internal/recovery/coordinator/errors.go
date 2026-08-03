@@ -35,6 +35,9 @@ var (
 
 	// ErrAcquisitionConflict indicates the same request_id was reused with a divergent request.
 	ErrAcquisitionConflict = errors.New("coordinator: acquisition request conflict")
+
+	// ErrPlannerRefused indicates the deterministic planner declined to propose a plan.
+	ErrPlannerRefused = errors.New("coordinator: planner refused")
 )
 
 // AcquisitionConflictError carries divergent acquisition request details.
@@ -49,6 +52,21 @@ func (e *AcquisitionConflictError) Error() string {
 
 func (e *AcquisitionConflictError) Is(target error) bool {
 	return target == ErrAcquisitionConflict
+}
+
+// PlannerRefusalError carries deterministic planner refusal details.
+type PlannerRefusalError struct {
+	CaseID  string
+	Codes   []string
+	Message string
+}
+
+func (e *PlannerRefusalError) Error() string {
+	return fmt.Sprintf("coordinator: planner refused for case %s: %s", e.CaseID, e.Message)
+}
+
+func (e *PlannerRefusalError) Is(target error) bool {
+	return target == ErrPlannerRefused
 }
 
 // RevisionConflictError carries optimistic concurrency details.

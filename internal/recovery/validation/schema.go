@@ -38,6 +38,8 @@ var contracts = []contractSpec{
 	{Dir: "read-operation-request-1.0.0", File: "read-operation-request.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/read-operation-request-1.0.0/read-operation-request.schema.json", Name: domain.SchemaReadOperationRequest},
 	{Dir: "read-operation-result-1.0.0", File: "read-operation-result.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/read-operation-result-1.0.0/read-operation-result.schema.json", Name: domain.SchemaReadOperationResult},
 	{Dir: "agent-consultation-1.0.0", File: "agent-consultation.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/agent-consultation-1.0.0/agent-consultation.schema.json", Name: domain.SchemaAgentConsultation},
+	{Dir: "policy-evaluation-1.0.0", File: "policy-evaluation.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/policy-evaluation-1.0.0/policy-evaluation.schema.json", Name: domain.SchemaPolicyEvaluation},
+	{Dir: "repair-approval-1.0.0", File: "repair-approval.schema.json", ID: "https://effexorwinpe.local/contracts/recovery/repair-approval-1.0.0/repair-approval.schema.json", Name: domain.SchemaRepairApproval},
 }
 
 var (

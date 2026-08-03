@@ -21,6 +21,8 @@ type Snapshot struct {
 	CoordinatorEvents    []domain.CoordinatorEvent
 	EvidenceAcquisitions []domain.EvidenceAcquisitionRecord
 	AgentConsultations   []domain.AgentConsultation
+	PolicyEvaluations    []domain.PolicyEvaluation
+	RepairApprovals      []domain.RepairApproval
 }
 
 // Options configures Store open-time dependencies.
