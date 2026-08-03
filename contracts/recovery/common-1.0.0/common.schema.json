@@ -22,6 +22,8 @@
     "topologyId": { "type": "string", "pattern": "^topology-[a-f0-9]{24}$" },
     "readRequestId": { "type": "string", "pattern": "^readreq-[a-f0-9]{24}$" },
     "commitId": { "type": "string", "pattern": "^commit-[a-f0-9]{24}$" },
+    "consultationId": { "type": "string", "pattern": "^consult-[a-f0-9]{24}$" },
+    "consultationRequestId": { "type": "string", "pattern": "^creq-[a-f0-9]{24}$" },
     "relativePath": {
       "type": "string",
       "minLength": 1,

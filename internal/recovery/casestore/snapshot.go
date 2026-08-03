@@ -36,6 +36,9 @@ func (s *Snapshot) Normalize() {
 	if s.EvidenceAcquisitions == nil {
 		s.EvidenceAcquisitions = []domain.EvidenceAcquisitionRecord{}
 	}
+	if s.AgentConsultations == nil {
+		s.AgentConsultations = []domain.AgentConsultation{}
+	}
 }
 
 // Validate checks Snapshot domain invariants before commit.
@@ -64,7 +67,7 @@ func (s Snapshot) Validate() error {
 	if s.WorkflowState == nil {
 		if len(s.Findings) > 0 || len(s.RepairPlans) > 0 || len(s.ExecutionEvents) > 0 ||
 			len(s.VerificationReports) > 0 || len(s.CoordinatorEvents) > 0 ||
-			len(s.EvidenceAcquisitions) > 0 {
+			len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 {
 			return fmt.Errorf("%w: lifecycle documents require workflow_state", ErrInvalidArgument)
 		}
 	}
@@ -178,6 +181,22 @@ func (s Snapshot) Validate() error {
 		}
 	}
 
+	consultationIDs := make(map[string]struct{}, len(s.AgentConsultations))
+	consultationRequestIDs := make(map[string]struct{}, len(s.AgentConsultations))
+	for i, cons := range s.AgentConsultations {
+		if _, ok := consultationIDs[cons.ConsultationID]; ok {
+			return fmt.Errorf("%w: duplicate consultation_id %q", ErrInvalidArgument, cons.ConsultationID)
+		}
+		consultationIDs[cons.ConsultationID] = struct{}{}
+		if _, ok := consultationRequestIDs[cons.RequestID]; ok {
+			return fmt.Errorf("%w: duplicate consultation request_id %q", ErrInvalidArgument, cons.RequestID)
+		}
+		consultationRequestIDs[cons.RequestID] = struct{}{}
+		if cons.CaseID != s.Case.CaseID {
+			return fmt.Errorf("%w: agent_consultations[%d].case_id mismatch", ErrInvalidArgument, i)
+		}
+	}
+
 	docIDs := make(map[string]struct{})
 	docIDs[s.Case.CaseID] = struct{}{}
 	for id := range targetIDs {
@@ -202,6 +221,9 @@ func (s Snapshot) Validate() error {
 		docIDs[id] = struct{}{}
 	}
 	for id := range acquisitionIDs {
+		docIDs[id] = struct{}{}
+	}
+	for id := range consultationIDs {
 		docIDs[id] = struct{}{}
 	}
 	if s.WorkflowState != nil {
@@ -274,9 +296,14 @@ func (s Snapshot) Validate() error {
 			return fmt.Errorf("evidence_acquisitions[%d]: %w", i, err)
 		}
 	}
+	for i, cons := range s.AgentConsultations {
+		if err := cons.ValidateConsultationRefs(refs); err != nil {
+			return fmt.Errorf("agent_consultations[%d]: %w", i, err)
+		}
+	}
 	if s.WorkflowState == nil {
-		if len(s.EvidenceAcquisitions) > 0 {
-			return fmt.Errorf("%w: evidence acquisitions require workflow_state", ErrInvalidArgument)
+		if len(s.EvidenceAcquisitions) > 0 || len(s.AgentConsultations) > 0 {
+			return fmt.Errorf("%w: evidence acquisitions and consultations require workflow_state", ErrInvalidArgument)
 		}
 	} else {
 		if err := s.WorkflowState.ValidateWorkflowRefs(refs); err != nil {
@@ -787,6 +814,7 @@ func SnapshotFromImporterResult(result legacyreport.Result) Snapshot {
 		VerificationReports:  []domain.VerificationReport{},
 		CoordinatorEvents:    []domain.CoordinatorEvent{},
 		EvidenceAcquisitions: []domain.EvidenceAcquisitionRecord{},
+		AgentConsultations:   []domain.AgentConsultation{},
 	}
 }
 
@@ -918,6 +946,21 @@ func prepareDocuments(snap Snapshot) ([]preparedDocument, error) {
 			return nil, fmt.Errorf("marshal evidence-acquisition %s: %w", acq.AcquisitionID, err)
 		}
 		docs = append(docs, documentEntry("evidence-acquisitions/"+acq.AcquisitionID+".json", raw))
+	}
+
+	consultations := append([]domain.AgentConsultation(nil), snap.AgentConsultations...)
+	sort.Slice(consultations, func(i, j int) bool {
+		return consultations[i].ConsultationID < consultations[j].ConsultationID
+	})
+	for _, cons := range consultations {
+		if err := validateConsultationID(cons.ConsultationID); err != nil {
+			return nil, err
+		}
+		raw, err := marshalCanonical(cons)
+		if err != nil {
+			return nil, fmt.Errorf("marshal agent-consultation %s: %w", cons.ConsultationID, err)
+		}
+		docs = append(docs, documentEntry("agent-consultations/"+cons.ConsultationID+".json", raw))
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].RelativePath < docs[j].RelativePath })

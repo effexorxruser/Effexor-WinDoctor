@@ -5,11 +5,10 @@
 // enforces legal transitions for the PR #17 subset, and records typed audit
 // events. PR #18 adds read-only acquisition APIs (ExecuteReadOperation,
 // ResolveWindowsBootTopology) that append Evidence and provenance records
-// without mutating a recovery target or advancing workflow beyond
-// evidence_collected. PR #19 adds CommitBootDoctorAnalysis, which runs the
-// pure Boot Doctor analyzer and commits Findings through the existing
-// analysis path (evidence_collected → analyzed). It does not call the
-// gateway, approve repairs, or execute mutating operations.
+// without mutating a recovery target. Acquisition is allowed in
+// evidence_collected and analyzed. PR #19 adds CommitBootDoctorAnalysis.
+// PR #20 adds CommitAgentConsultation for advisory enrichment that does not
+// advance workflow past analyzed and does not emit CoordinatorEvents.
 //
 // Idempotency model (PR #17):
 // Case Store Commit is idempotent for an identical canonical Snapshot
@@ -18,5 +17,6 @@
 // forward compatibility. PR #18 acquisition requests are idempotent on
 // identical request_id + canonical request payload. PR #19 Boot Doctor
 // analysis retries are idempotent on identical request_id when the Finding
-// set already matches.
+// set already matches. PR #20 consultation retries are idempotent on
+// identical request_id + canonical consultation body.
 package coordinator

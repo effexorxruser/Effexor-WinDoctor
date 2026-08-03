@@ -23,4 +23,5 @@ const (
 	SchemaWindowsBootTopology       = "windows-boot-topology"
 	SchemaReadOperationRequest      = "read-operation-request"
 	SchemaReadOperationResult       = "read-operation-result"
+	SchemaAgentConsultation         = "agent-consultation"
 )

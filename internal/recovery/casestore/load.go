@@ -287,6 +287,20 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 				return Snapshot{}, fmt.Errorf("%w: evidence-acquisition path %q does not match acquisition_id %q", ErrIntegrity, d.RelativePath, acq.AcquisitionID)
 			}
 			snap.EvidenceAcquisitions = append(snap.EvidenceAcquisitions, acq)
+		case strings.HasPrefix(d.RelativePath, "agent-consultations/") && strings.HasSuffix(d.RelativePath, ".json"):
+			raw, err := os.ReadFile(filepath.Join(docsDir, filepath.FromSlash(d.RelativePath)))
+			if err != nil {
+				return Snapshot{}, err
+			}
+			var cons domain.AgentConsultation
+			if err := domain.DecodeAndValidateJSON(raw, &cons); err != nil {
+				return Snapshot{}, fmt.Errorf("%s: %w", d.RelativePath, err)
+			}
+			want := "agent-consultations/" + cons.ConsultationID + ".json"
+			if d.RelativePath != want {
+				return Snapshot{}, fmt.Errorf("%w: agent-consultation path %q does not match consultation_id %q", ErrIntegrity, d.RelativePath, cons.ConsultationID)
+			}
+			snap.AgentConsultations = append(snap.AgentConsultations, cons)
 		default:
 			return Snapshot{}, fmt.Errorf("%w: unsupported document path %q", ErrIntegrity, d.RelativePath)
 		}
@@ -308,6 +322,9 @@ func (s *Store) loadSnapshotAtCommit(caseID string, head commitRecord) (Snapshot
 	})
 	sort.Slice(snap.EvidenceAcquisitions, func(i, j int) bool {
 		return snap.EvidenceAcquisitions[i].AcquisitionID < snap.EvidenceAcquisitions[j].AcquisitionID
+	})
+	sort.Slice(snap.AgentConsultations, func(i, j int) bool {
+		return snap.AgentConsultations[i].ConsultationID < snap.AgentConsultations[j].ConsultationID
 	})
 	if err := snap.Validate(); err != nil {
 		return Snapshot{}, err
@@ -529,6 +546,7 @@ func validateManifestDocumentPath(rel string) error {
 		{"verifications/", reVerificationID, "verification"},
 		{"coordinator-events/", reCoordinatorEventID, "coordinator-event"},
 		{"evidence-acquisitions/", reAcquisitionID, "evidence-acquisition"},
+		{"agent-consultations/", reConsultationID, "agent-consultation"},
 	}
 	for _, rule := range rules {
 		if strings.HasPrefix(rel, rule.prefix) && strings.HasSuffix(rel, ".json") {

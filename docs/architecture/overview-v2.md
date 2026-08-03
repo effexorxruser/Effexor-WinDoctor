@@ -61,13 +61,15 @@ commits) exist. A **Recovery Coordinator** library (PR #17, on main) orchestrate
 create/resume and early workflow transitions over the Case Store. **PR #18**
 adds an advisory Windows boot topology resolver, a typed read-only operation
 registry (Case snapshot evidence + Case Store integrity verify), and incremental
-evidence acquisition with provenance records. **Draft PR #19** adds deterministic
+evidence acquisition with provenance records. **PR #19** adds deterministic
 Boot Doctor analysis (`internal/recovery/bootdoctor`) that turns topology + Case
-Evidence into typed Findings only — still no mutation, live reinspection, planner,
-backup, or LLM authority. `mutation_eligibility` on topology facts is diagnostic
-completeness only; it is **not** approval or safe-to-repair authority. Findings are
-not approvals either. Neither acquisition nor Boot Doctor is wired into WinPE
-runtime or GUI yet. Mutation, backup, and verification remain **not** shipped.
+Evidence into typed Findings. **Draft PR #20** adds Recovery Agent Runtime v2
+(`internal/recovery/agentruntime`) and advisory `agent-consultation` documents —
+still no mutation, live reinspection, planner, backup, or model authority over
+approval. `mutation_eligibility` on topology facts is diagnostic completeness
+only; it is **not** approval or safe-to-repair authority. Findings and
+consultations are not approvals either. Runtime is not wired into WinPE GUI yet.
+Mutation, backup, and verification remain **not** shipped.
 
 ## Component mapping (legacy-compatible)
 
@@ -93,8 +95,9 @@ These names remain valid. Reframing does not deprecate them for deletion.
 
 ## First vertical
 
-**Boot Doctor** is the first product vertical to build on Core contracts. It is
-a roadmap commitment, not a shipped module.
+**Boot Doctor** (PR #19) and **Recovery Agent Runtime v2** (PR #20) are the first
+product verticals on Core contracts. Planner/policy/approval and repair execution
+remain later PRs. This document does not claim release readiness.
 
 ## Desktop shell
 
