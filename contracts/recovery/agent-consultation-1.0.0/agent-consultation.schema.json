@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effexorwinpe.local/contracts/recovery/agent-consultation-1.0.0/agent-consultation.schema.json",
+  "title": "Effexor Recovery agent-consultation 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "consultation_id",
+    "case_id",
+    "request_id",
+    "runtime_id",
+    "runtime_version",
+    "source_commit_id",
+    "input_digest",
+    "generated_at",
+    "status",
+    "round_count",
+    "finding_refs",
+    "evidence_refs",
+    "target_refs",
+    "hypotheses",
+    "next_diagnostic_steps",
+    "retrieved_sources",
+    "limitations",
+    "provider_metadata"
+  ],
+  "properties": {
+    "schema_name": { "const": "agent-consultation" },
+    "schema_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/schemaVersion" },
+    "consultation_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/consultationId" },
+    "case_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/caseId" },
+    "request_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/consultationRequestId" },
+    "runtime_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "runtime_version": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/semver" },
+    "source_commit_id": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/commitId" },
+    "input_digest": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/sha256" },
+    "generated_at": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/rfc3339" },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "needs_more_evidence", "blocked", "failed"]
+    },
+    "round_count": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "topology_id": {
+      "type": "string",
+      "pattern": "^$|^topology-[a-f0-9]{24}$"
+    },
+    "finding_refs": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/findingId" },
+      "uniqueItems": true
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+      "uniqueItems": true
+    },
+    "target_refs": {
+      "type": "array",
+      "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/targetId" },
+      "uniqueItems": true
+    },
+    "hypotheses": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/hypothesis" }
+    },
+    "next_diagnostic_steps": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "retrieved_sources": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/retrievedSource" }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    },
+    "provider_metadata": { "$ref": "#/$defs/providerMetadata" },
+    "insufficient_evidence": { "type": "boolean" }
+  },
+  "$defs": {
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hypothesis_id",
+        "code",
+        "title",
+        "rationale",
+        "confidence",
+        "supporting_finding_refs",
+        "supporting_evidence_refs",
+        "contradicting_evidence_refs",
+        "limitations",
+        "advisory"
+      ],
+      "properties": {
+        "hypothesis_id": {
+          "type": "string",
+          "pattern": "^hyp-[a-f0-9]{24}$"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,127}$"
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+        "supporting_finding_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/findingId" },
+          "uniqueItems": true
+        },
+        "supporting_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+          "uniqueItems": true
+        },
+        "contradicting_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "https://effexorwinpe.local/contracts/recovery/common-1.0.0/common.schema.json#/$defs/evidenceId" },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        },
+        "advisory": { "const": true }
+      }
+    },
+    "retrievedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "domain"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$"
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "providerMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_name"],
+      "properties": {
+        "provider_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "model_name": { "type": "string", "maxLength": 128 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_refs": { "type": "array", "maxItems": 0 },
+          "finding_refs": { "type": "array", "maxItems": 0 }
+        },
+        "required": ["evidence_refs", "finding_refs"]
+      },
+      "then": {
+        "required": ["insufficient_evidence"],
+        "properties": {
+          "insufficient_evidence": { "const": true }
+        }
+      }
+    }
+  ]
+}
