@@ -1,0 +1,7 @@
+# Binaries stay out of Git (AGENTS.md). Provenance + license text may be tracked.
+*.exe
+*.dll
+*.pdb
+*.zip
+*.7z
+*.rar

@@ -1,0 +1,31 @@
+{
+  "project": "PExplorer / WinXShell shellpart",
+  "revision": "5f8b886f326e706e6e4bba0e0b15da7da344857e",
+  "source_url": "https://github.com/slorelee/PExplorer/tree/WinXShell_shellpart",
+  "license": "LGPL-2.1",
+  "license_file": "third_party/winxshell/LICENSE.upstream-LGPL-2.1.txt",
+  "applied_patches": [
+    "Local vendor-checkout only (not committed upstream): retarget notifyhook + WinXShell PlatformToolset to v143.",
+    "Local vendor-checkout only: set WindowsTargetPlatformVersion to 10.0.26100.0.",
+    "Local vendor-checkout only: WinXShell AdditionalLibraryDirectories uses $(OutDir) so notifyhook.lib resolves for x64.",
+    "Build notifyhook.dll separately, then WinXShell.exe Release|x64."
+  ],
+  "build_instructions": [
+    "Clone https://github.com/slorelee/PExplorer.git and checkout 5f8b886f326e706e6e4bba0e0b15da7da344857e.",
+    "Install Visual Studio 2022 Build Tools with Microsoft.VisualStudio.Workload.VCTools.",
+    "Retarget notifyhook/notifyhook.vcxproj and WinXShell_VS2015.vcxproj to PlatformToolset=v143 and WindowsTargetPlatformVersion=10.0.26100.0 (or another installed SDK).",
+    "msbuild notifyhook\\notifyhook.vcxproj /p:Configuration=Release /p:Platform=x64",
+    "Stage notifyhook.lib where WinXShell can link it (x64\\Release and/or Release).",
+    "msbuild WinXShell_VS2015.vcxproj /p:Configuration=Release /p:Platform=x64",
+    "Copy WinXShell.exe and notifyhook.dll into third_party/winxshell/ (gitignored) and record SHA-256 here.",
+    "Ship WinXShell.jcfg beside the EXE for wallpaper/taskbar/start-menu power commands."
+  ],
+  "sha256": "5C88AB009A4F0B43590F0E1A7EDFB397BD2D80F49E0F82F5D2655344F9615EF3",
+  "redistribution_status": "local_test_only",
+  "notes": [
+    "Do not vendor opaque WinXShell packs, Strelec builds, explorer.exe, or Windows system DLLs.",
+    "notifyhook.dll is required at runtime beside WinXShell.exe.",
+    "local_test_only means experimental lab use only; not redistributable/approved.",
+    "Desktop-shell ISO remains experimental until physical Ventoy smoke completes."
+  ]
+}

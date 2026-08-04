@@ -23,6 +23,7 @@ try {
     }
 
     & (Join-Path $PSScriptRoot "Test-Add-WinPELanguage.ps1")
+    & (Join-Path $PSScriptRoot "Test-DesktopShellSpike.ps1")
 
     $PreviousGoOS = $env:GOOS
     $PreviousGoArch = $env:GOARCH
